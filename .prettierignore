@@ -1,0 +1,11 @@
+dist
+coverage
+node_modules
+package-lock.json
+
+# disposable spike experiments — not held to project style
+spikes
+
+# pre-existing project docs, left as authored
+readme.md
+claude.md

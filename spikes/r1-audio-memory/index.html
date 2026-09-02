@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SoftView Spike R1 — Audio decode memory</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.55 system-ui, sans-serif; margin: 0; padding: 24px;
+         max-width: 900px; margin-inline: auto; }
+  h1 { font-size: 1.3rem; } h2 { font-size: 1.05rem; margin-top: 1.8rem; }
+  fieldset { border: 1px solid GrayText; border-radius: 8px; margin: 12px 0; padding: 12px 16px; }
+  label { display: inline-flex; gap: 6px; align-items: center; margin: 4px 14px 4px 0; }
+  button { font: inherit; padding: 6px 14px; border-radius: 6px; margin: 4px 8px 4px 0; }
+  input[type=number] { font: inherit; padding: 3px 6px; }
+  pre { background: color-mix(in srgb, Canvas 92%, GrayText); padding: 12px;
+        border-radius: 8px; overflow-x: auto; white-space: pre-wrap; }
+  table { border-collapse: collapse; margin: 8px 0; font-variant-numeric: tabular-nums; }
+  th, td { border: 1px solid GrayText; padding: 4px 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .note { color: GrayText; }
+  #status { font-weight: 600; min-height: 1.4em; }
+</style>
+</head>
+<body>
+<h1>SoftView Spike R1 — <code>decodeAudioData</code> memory &amp; scaling</h1>
+<p class="note">
+  Disposable experiment. Measures how decoded PCM memory scales with duration / channels /
+  sample rate, how fast decode is, and whether a decode-time downsample is possible.
+  Nothing is uploaded. Pick a local MP3/MP4/M4A (or use the fixtures in this folder).
+  For heap deltas to appear, run Chrome with <code>--enable-precise-memory-info</code>.
+</p>
+
+<fieldset>
+  <legend>Input</legend>
+  <input type="file" id="file" accept="audio/*,video/*">
+  <p class="note" id="fileinfo"></p>
+</fieldset>
+
+<fieldset>
+  <legend>Options</legend>
+  <label><input type="checkbox" id="mono" checked> also build a mono downmix (Float32Array) and time it</label><br>
+  <label><input type="checkbox" id="resample" checked> also try decode at 16 kHz (<code>new AudioContext({sampleRate:16000})</code>)</label><br>
+  <label>Stress: hold
+    <input type="number" id="copies" value="1" min="1" max="64" style="width:4em"> decoded copies in memory (find the failure point)
+  </label>
+</fieldset>
+
+<p>
+  <button id="run">Decode &amp; measure</button>
+  <button id="copy">Copy results JSON</button>
+</p>
+<p id="status"></p>
+
+<div id="out"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let fileBuf = null;
+let fileMeta = null;
+let lastResults = { env: environment(), runs: [] };
+
+function environment() {
+  return {
+    userAgent: navigator.userAgent,
+    hardwareConcurrency: navigator.hardwareConcurrency ?? null,
+    deviceMemoryGB: navigator.deviceMemory ?? null,
+    hasPreciseMemory: !!(performance.memory),
+    jsHeapLimitMB: performance.memory
+      ? Math.round(performance.memory.jsHeapSizeLimit / 1e6) : null,
+    crossOriginIsolated: self.crossOriginIsolated,
+  };
+}
+
+const round = (x, p = 2) => Math.round(x * 10 ** p) / 10 ** p;
+const MB = (bytes) => round(bytes / 1024 / 1024, 1);
+const heap = () => (performance.memory ? performance.memory.usedJSHeapSize : null);
+
+function pcmBytes(frames, channels) { return frames * channels * 4; }
+
+function scalingTable(sampleRate, channels) {
+  const perSec = sampleRate * channels * 4;
+  const rows = {};
+  for (const min of [1, 5, 15, 30, 60, 120]) {
+    rows[`${min} min`] = `${MB(perSec * 60 * min)} MB`;
+  }
+  return { bytesPerSecond: perSec, mbPerMinute: round(perSec * 60 / 1024 / 1024, 1), projected: rows };
+}
+
+async function decodeOnce(buf, ctxOptions) {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)(ctxOptions || {});
+  const h0 = heap();
+  const t0 = performance.now();
+  // decodeAudioData detaches its input; pass a copy so we can reuse fileBuf.
+  const audio = await ctx.decodeAudioData(buf.slice(0));
+  const decodeMs = performance.now() - t0;
+  const h1 = heap();
+  const result = {
+    contextSampleRate: ctx.sampleRate,
+    decodedSampleRate: audio.sampleRate,
+    channels: audio.numberOfChannels,
+    frames: audio.length,
+    durationSec: round(audio.duration, 3),
+    theoreticalPcmMB: MB(pcmBytes(audio.length, audio.numberOfChannels)),
+    decodeMs: round(decodeMs),
+    decodeSpeedRealtimeX: round(audio.duration / (decodeMs / 1000)),
+    heapDeltaMB: h0 != null && h1 != null ? MB(h1 - h0) : null,
+  };
+  await ctx.close();
+  return { audio, result };
+}
+
+async function run() {
+  if (!fileBuf) throw new Error('pick a file first');
+  const runs = [];
+
+  // 1. Native decode.
+  $('status').textContent = 'decoding (native rate)…';
+  const native = await decodeOnce(fileBuf);
+  const sr = native.audio.sampleRate;
+  const ch = native.audio.numberOfChannels;
+  runs.push({
+    label: 'native decode',
+    ...native.result,
+    scaling: scalingTable(sr, ch),
+  });
+
+  // 2. Mono downmix cost.
+  if ($('mono').checked) {
+    $('status').textContent = 'building mono downmix…';
+    const h0 = heap();
+    const t0 = performance.now();
+    const frames = native.audio.length;
+    const mono = new Float32Array(frames);
+    const chans = [];
+    for (let c = 0; c < ch; c++) chans.push(native.audio.getChannelData(c));
+    for (let i = 0; i < frames; i++) {
+      let s = 0;
+      for (let c = 0; c < ch; c++) s += chans[c][i];
+      mono[i] = s / ch;
+    }
+    runs.push({
+      label: 'mono downmix (Float32Array)',
+      frames, ms: round(performance.now() - t0),
+      arrayBytesMB: MB(mono.byteLength),
+      heapDeltaMB: h0 != null ? MB(heap() - h0) : null,
+      note: 'this is the working-set size if we downmix to mono and drop the stereo AudioBuffer',
+    });
+  }
+
+  // 3. Decode-time downsample to 16 kHz.
+  if ($('resample').checked) {
+    $('status').textContent = 'decoding at 16 kHz…';
+    try {
+      const low = await decodeOnce(fileBuf, { sampleRate: 16000 });
+      runs.push({
+        label: 'decode at 16 kHz',
+        ...low.result,
+        resampledByBrowser: low.result.decodedSampleRate === 16000,
+        note: low.result.decodedSampleRate === 16000
+          ? 'browser resampled on decode — big memory win for loudness analysis'
+          : 'browser ignored the requested rate and kept native — no memory win this way',
+        scaling: scalingTable(low.result.decodedSampleRate, low.result.channels),
+      });
+    } catch (e) {
+      runs.push({ label: 'decode at 16 kHz', error: e.message });
+    }
+  }
+
+  // 4. Stress: hold N decoded copies.
+  const copies = Math.max(1, +$('copies').value);
+  if (copies > 1) {
+    const held = [native.audio];
+    let ok = 1;
+    let failure = null;
+    for (let i = 1; i < copies; i++) {
+      $('status').textContent = `stress: decoding copy ${i + 1}/${copies}…`;
+      try {
+        const c = await decodeOnce(fileBuf);
+        held.push(c.audio);
+        ok++;
+      } catch (e) {
+        failure = e.message;
+        break;
+      }
+    }
+    runs.push({
+      label: 'stress: N held decoded copies',
+      requested: copies, succeeded: ok,
+      failureError: failure,
+      approxHeldPcmMB: MB(ok * pcmBytes(native.audio.length, ch)),
+      heapUsedMB: heap() != null ? MB(heap()) : null,
+    });
+    held.length = 0;
+  }
+
+  lastResults.runs.push({ file: fileMeta, results: runs });
+  render();
+  $('status').textContent = 'done';
+}
+
+function render() {
+  const parts = [`<h2>Environment</h2><pre>${JSON.stringify(lastResults.env, null, 2)}</pre>`];
+  for (const r of lastResults.runs) {
+    parts.push(`<h2>${r.file?.name ?? 'run'}</h2><pre>${JSON.stringify(r, null, 2)}</pre>`);
+  }
+  $('out').innerHTML = parts.join('\n');
+}
+
+$('file').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  $('status').textContent = 'reading file…';
+  fileBuf = await f.arrayBuffer();
+  fileMeta = { name: f.name, type: f.type || 'unknown', compressedMB: MB(f.size) };
+  $('fileinfo').textContent = `${f.name} — ${MB(f.size)} MB compressed, ${f.type || 'unknown type'}`;
+  $('status').textContent = 'file ready';
+});
+
+$('run').addEventListener('click', async () => {
+  try { await run(); }
+  catch (e) { $('status').textContent = 'error: ' + e.message; console.error(e); }
+});
+
+$('copy').addEventListener('click', async () => {
+  await navigator.clipboard.writeText(JSON.stringify(lastResults, null, 2));
+  $('status').textContent = 'results copied to clipboard';
+});
+
+// Headless/automation mode: ?autorun=audio-1800s-44100hz-2ch.mp3
+(async () => {
+  const auto = new URLSearchParams(location.search).get('autorun');
+  if (!auto) return;
+  const pre = document.createElement('pre');
+  pre.id = 'autorun-output';
+  document.body.appendChild(pre);
+  try {
+    const blob = await (await fetch(auto)).blob();
+    fileBuf = await blob.arrayBuffer();
+    fileMeta = { name: auto, type: blob.type || 'unknown', compressedMB: MB(blob.size) };
+    await run();
+    pre.textContent = 'AUTORUN_RESULT ' + JSON.stringify(lastResults);
+  } catch (e) {
+    pre.textContent = 'AUTORUN_ERROR ' + e.message;
+  }
+})();
+
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  // The analysis engines are pure. This project deliberately has NO "DOM" lib, so any
+  // reference to window/document/HTMLVideoElement/fetch/etc. inside src/core fails to
+  // type-check. Browser glue belongs in src/adapters instead.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": []
+  },
+  "include": ["src/core"]
+}

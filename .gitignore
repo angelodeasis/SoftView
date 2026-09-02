@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+*.local
+.DS_Store
+node_modules/.tmp
+*.tsbuildinfo
+
+# generated spike test media (regenerate with spikes/media-generate.sh)
+spikes/**/*.mp3
+spikes/**/*.mp4
+spikes/**/*.m4a

@@ -1,0 +1,165 @@
+:root {
+  color-scheme: light dark;
+  --fg: #1c1c1e;
+  --bg: #fbfbfa;
+  --muted: #57575c;
+  --accent: #3b5bdb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e9e9ea;
+    --bg: #17171a;
+    --muted: #a1a1a8;
+    --accent: #91a7ff;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+/* SoftView's own UI avoids intense motion. Keep transitions gentle and honour
+   the user's reduced-motion preference everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.app {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+}
+
+h1 {
+  font-size: 1.8rem;
+  margin-bottom: 0.25rem;
+}
+
+.tagline {
+  margin-top: 0;
+  color: var(--muted);
+}
+
+.disclaimer {
+  border-left: 3px solid var(--accent);
+  padding-left: 1rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.status {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+/* --- Select media --- */
+
+.select-media h2 {
+  font-size: 1.15rem;
+  margin-bottom: 0.75rem;
+}
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  border: 1px dashed color-mix(in srgb, var(--muted) 60%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+
+.dropzone--active {
+  border-color: var(--accent);
+  border-style: solid;
+}
+
+.dropzone__label {
+  font-weight: 600;
+}
+
+.dropzone__hint {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.error {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid #d64545;
+  background: color-mix(in srgb, #d64545 10%, transparent);
+  font-size: 0.95rem;
+}
+
+.facts {
+  margin-top: 1.5rem;
+}
+
+.facts__list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15rem 1rem;
+}
+
+.facts__list > div {
+  display: contents;
+}
+
+.facts__list dt {
+  color: var(--muted);
+}
+
+.facts__list dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.advisory {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+
+.advisory--info {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.advisory--warn {
+  background: color-mix(in srgb, #c98a00 16%, transparent);
+}
+
+.player {
+  margin-top: 1.5rem;
+  width: 100%;
+  border-radius: 8px;
+}
+
+video.player {
+  aspect-ratio: 16 / 9;
+  background: #000;
+}

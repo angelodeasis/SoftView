@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SoftView Spike R2 — Video frame sampling</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.55 system-ui, sans-serif; margin: 0; padding: 24px;
+         max-width: 900px; margin-inline: auto; }
+  h1 { font-size: 1.3rem; } h2 { font-size: 1.05rem; margin-top: 1.8rem; }
+  fieldset { border: 1px solid GrayText; border-radius: 8px; margin: 12px 0; padding: 12px 16px; }
+  label { display: inline-flex; gap: 6px; align-items: center; margin: 4px 14px 4px 0; }
+  button { font: inherit; padding: 6px 14px; border-radius: 6px; margin: 4px 8px 4px 0; }
+  select, input[type=number] { font: inherit; padding: 3px 6px; }
+  pre { background: color-mix(in srgb, Canvas 92%, GrayText); padding: 12px;
+        border-radius: 8px; overflow-x: auto; white-space: pre-wrap; }
+  table { border-collapse: collapse; margin: 8px 0; }
+  th, td { border: 1px solid GrayText; padding: 4px 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .note { color: GrayText; }
+  #status { font-weight: 600; min-height: 1.4em; }
+  video, canvas { display: none; }
+</style>
+</head>
+<body>
+<h1>SoftView Spike R2 — browser video frame sampling</h1>
+<p class="note">
+  Disposable experiment. Measures whether we can sample video frames locally, downscale them,
+  and compute per-frame brightness fast enough for flash detection — using
+  <code>requestVideoFrameCallback</code> (rVFC) and a seek-loop fallback.
+  Nothing is uploaded. Pick a local MP4 (or use the generated fixtures in this folder).
+</p>
+
+<fieldset>
+  <legend>Input</legend>
+  <input type="file" id="file" accept="video/*">
+  <p class="note" id="fileinfo"></p>
+</fieldset>
+
+<fieldset>
+  <legend>Parameters</legend>
+  <label>Downscale
+    <select id="size">
+      <option>32</option><option selected>64</option><option>96</option><option>128</option>
+    </select> px square
+  </label>
+  <label>Capture mode
+    <select id="mode">
+      <option value="wrf">A: 2D canvas, willReadFrequently</option>
+      <option value="gpu" selected>B: 2D canvas, GPU (default hint)</option>
+      <option value="bitmap">C: createImageBitmap resize → draw</option>
+    </select>
+  </label>
+  <label>Playback rate (rVFC)
+    <select id="rate">
+      <option>1</option><option>2</option><option selected>4</option><option>8</option><option>16</option>
+    </select>×
+  </label>
+  <label>Seek-loop target
+    <select id="fps"><option>10</option><option selected>15</option><option>30</option></select> Hz
+  </label>
+  <label>Seek-loop window
+    <input type="number" id="seekwin" value="10" min="1" max="120" style="width:4em"> s
+  </label>
+  <label><input type="checkbox" id="grid"> also time 8×8 grid luminance</label>
+</fieldset>
+
+<p>
+  <button id="run-rvfc">Run rVFC pass</button>
+  <button id="run-sweep">Sweep rVFC rates (1/2/4/8)</button>
+  <button id="run-modes">Compare capture modes (A/B/C @ rate 2)</button>
+  <button id="run-seek">Run seek-loop pass</button>
+  <button id="copy">Copy results JSON</button>
+</p>
+<p id="status"></p>
+
+<div id="out"></div>
+
+<video id="v" playsinline muted preload="auto"></video>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const video = $('v');
+let objectUrl = null;
+let lastResults = { env: environment(), runs: [] };
+
+function environment() {
+  return {
+    userAgent: navigator.userAgent,
+    hardwareConcurrency: navigator.hardwareConcurrency ?? null,
+    deviceMemoryGB: navigator.deviceMemory ?? null,
+    devicePixelRatio: window.devicePixelRatio,
+    screen: `${screen.width}x${screen.height}`,
+    hasRVFC: 'requestVideoFrameCallback' in HTMLVideoElement.prototype,
+    hasOffscreenCanvas: typeof OffscreenCanvas !== 'undefined',
+  };
+}
+
+function stats(a) {
+  if (!a.length) return { n: 0 };
+  const s = [...a].sort((x, y) => x - y);
+  const n = s.length;
+  const mean = s.reduce((p, c) => p + c, 0) / n;
+  const variance = s.reduce((p, c) => p + (c - mean) ** 2, 0) / n;
+  return {
+    n, min: round(s[0]), max: round(s[n - 1]), mean: round(mean),
+    median: round(s[n >> 1]), p95: round(s[Math.min(n - 1, Math.floor(n * 0.95))]),
+    stddev: round(Math.sqrt(variance)),
+  };
+}
+const round = (x) => (typeof x === 'number' ? Math.round(x * 1000) / 1000 : x);
+
+function makeCanvas(w, h, mode) {
+  const c = environment().hasOffscreenCanvas ? new OffscreenCanvas(w, h)
+    : Object.assign(document.createElement('canvas'), { width: w, height: h });
+  const ctx = c.getContext('2d', mode === 'wrf' ? { willReadFrequently: true } : {});
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'low';
+  return { c, ctx };
+}
+
+// Returns { data, drawMs, readMs }. `data` is a downscaled RGBA Uint8ClampedArray.
+async function capture(source, ctx, size, mode) {
+  const d0 = performance.now();
+  if (mode === 'bitmap') {
+    const bmp = await createImageBitmap(source, {
+      resizeWidth: size, resizeHeight: size, resizeQuality: 'low',
+    });
+    ctx.drawImage(bmp, 0, 0);
+    bmp.close();
+  } else {
+    ctx.drawImage(source, 0, 0, size, size);
+  }
+  const d1 = performance.now();
+  const img = ctx.getImageData(0, 0, size, size);
+  const r1 = performance.now();
+  return { data: img.data, drawMs: d1 - d0, readMs: r1 - d1 };
+}
+
+function meanLuminance(data) {
+  let sum = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    sum += 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+  }
+  return sum / (data.length / 4) / 255;
+}
+
+function gridLuminance(data, w, h, gx = 8, gy = 8) {
+  const cells = new Float64Array(gx * gy);
+  const counts = new Int32Array(gx * gy);
+  for (let y = 0; y < h; y++) {
+    const cy = Math.min(gy - 1, (y * gy / h) | 0);
+    for (let x = 0; x < w; x++) {
+      const cx = Math.min(gx - 1, (x * gx / w) | 0);
+      const i = (y * w + x) * 4;
+      const idx = cy * gx + cx;
+      cells[idx] += 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+      counts[idx]++;
+    }
+  }
+  for (let i = 0; i < cells.length; i++) cells[i] = cells[i] / counts[i] / 255;
+  return cells;
+}
+
+async function loadFile(file) {
+  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  objectUrl = URL.createObjectURL(file);
+  video.src = objectUrl;
+  await new Promise((res, rej) => {
+    video.onloadedmetadata = res;
+    video.onerror = () => rej(new Error('video failed to load/decode'));
+  });
+  $('fileinfo').textContent =
+    `${file.name} — ${(file.size / 1e6).toFixed(1)} MB, ${file.type || 'unknown type'}, ` +
+    `${video.videoWidth}×${video.videoHeight}, ${video.duration.toFixed(2)} s`;
+}
+
+async function runRVFC({ size, rate, mode }) {
+  if (!environment().hasRVFC) throw new Error('requestVideoFrameCallback not supported');
+  const { ctx } = makeCanvas(size, size, mode);
+  const doGrid = $('grid').checked;
+  const samples = [];
+  let procTotal = 0, drawTotal = 0, readTotal = 0;
+
+  video.pause();
+  video.currentTime = 0;
+  await new Promise((r) => (video.onseeked = r));
+  video.playbackRate = rate;
+
+  const wallStart = performance.now();
+  await new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    video.onended = finish;
+    const onFrame = async (now, meta) => {
+      const t0 = performance.now();
+      const { data, drawMs, readMs } = await capture(video, ctx, size, mode);
+      const lum = meanLuminance(data);
+      let gridMs = 0;
+      if (doGrid) {
+        const g0 = performance.now();
+        gridLuminance(data, size, size);
+        gridMs = performance.now() - g0;
+      }
+      const dt = performance.now() - t0;
+      procTotal += dt; drawTotal += drawMs; readTotal += readMs;
+      samples.push({
+        mediaTime: meta.mediaTime,
+        presentedFrames: meta.presentedFrames,
+        wall: now,
+        lum: round(lum),
+        procMs: round(dt),
+        gridMs: round(gridMs),
+      });
+      if (video.ended || video.currentTime >= video.duration - 1e-3) { finish(); return; }
+      video.requestVideoFrameCallback(onFrame);
+    };
+    video.requestVideoFrameCallback(onFrame);
+    video.play();
+  });
+  const wallMs = performance.now() - wallStart;
+  video.pause();
+
+  const mediaDeltas = [];
+  const presentedGaps = [];
+  for (let i = 1; i < samples.length; i++) {
+    mediaDeltas.push(samples[i].mediaTime - samples[i - 1].mediaTime);
+    presentedGaps.push(samples[i].presentedFrames - samples[i - 1].presentedFrames);
+  }
+  const covered = samples.length
+    ? samples[samples.length - 1].mediaTime - samples[0].mediaTime : 0;
+
+  const nn = samples.length || 1;
+  return {
+    method: 'rvfc', size, rate, mode,
+    framesCaptured: samples.length,
+    mediaSecondsCovered: round(covered),
+    effectiveSampleRateHz: round(samples.length / (covered || 1)),
+    wallSeconds: round(wallMs / 1000),
+    realtimeFactor: round(covered / (wallMs / 1000)),
+    avgProcMsPerFrame: round(procTotal / nn),
+    avgDrawMsPerFrame: round(drawTotal / nn),
+    avgReadMsPerFrame: round(readTotal / nn),
+    maxSustainableRateHz: round(1000 / (procTotal / nn)),
+    mediaTimeDeltaStats: stats(mediaDeltas),
+    presentedFrameGapStats: stats(presentedGaps),
+    droppedFrameHint:
+      `${presentedGaps.filter((g) => g > 1).length} of ${presentedGaps.length} intervals skipped >1 presented frame`,
+    lumRange: samples.length
+      ? [Math.min(...samples.map((s) => s.lum)), Math.max(...samples.map((s) => s.lum))].map(round)
+      : [],
+    gridAvgMs: doGrid ? round(samples.reduce((p, s) => p + s.gridMs, 0) / samples.length) : null,
+  };
+}
+
+async function runSeek({ size, fps, windowSec, mode }) {
+  const { ctx } = makeCanvas(size, size, mode);
+  const step = 1 / fps;
+  const end = Math.min(video.duration, windowSec);
+  const samples = [];
+  video.pause();
+  video.playbackRate = 1;
+
+  const wallStart = performance.now();
+  for (let t = 0; t < end; t += step) {
+    const s0 = performance.now();
+    video.currentTime = t;
+    await new Promise((r) => (video.onseeked = r));
+    const seekMs = performance.now() - s0;
+    const p0 = performance.now();
+    const { data } = await capture(video, ctx, size, mode);
+    const lum = meanLuminance(data);
+    samples.push({
+      requested: round(t), landed: round(video.currentTime),
+      err: round(Math.abs(video.currentTime - t)),
+      seekMs: round(seekMs), procMs: round(performance.now() - p0), lum: round(lum),
+    });
+    $('status').textContent = `seek-loop… ${samples.length} frames`;
+  }
+  const wallMs = performance.now() - wallStart;
+  const landed = samples.map((s) => s.landed);
+  const distinct = new Set(landed.map((x) => x.toFixed(3))).size;
+
+  return {
+    method: 'seek-loop', size, mode, targetFps: fps, windowSec: end,
+    framesCaptured: samples.length,
+    wallSeconds: round(wallMs / 1000),
+    realtimeFactor: round(end / (wallMs / 1000)),
+    seekMsStats: stats(samples.map((s) => s.seekMs)),
+    procMsStats: stats(samples.map((s) => s.procMs)),
+    seekErrorStats: stats(samples.map((s) => s.err)),
+    distinctLandedFrames: `${distinct} of ${samples.length}`,
+    monotonic: landed.every((v, i) => i === 0 || v >= landed[i - 1]),
+    lumRange: [Math.min(...samples.map((s) => s.lum)), Math.max(...samples.map((s) => s.lum))].map(round),
+  };
+}
+
+function render() {
+  const parts = [`<h2>Environment</h2><pre>${JSON.stringify(lastResults.env, null, 2)}</pre>`,
+    `<h2>Runs</h2>`];
+  for (const r of lastResults.runs) {
+    parts.push(`<pre>${JSON.stringify(r, null, 2)}</pre>`);
+  }
+  $('out').innerHTML = parts.join('\n');
+}
+
+function params() {
+  return {
+    size: +$('size').value,
+    rate: +$('rate').value,
+    fps: +$('fps').value,
+    windowSec: +$('seekwin').value,
+    mode: $('mode').value,
+  };
+}
+
+async function guard(fn) {
+  try {
+    $('status').textContent = 'running…';
+    await fn();
+    $('status').textContent = 'done';
+  } catch (e) {
+    $('status').textContent = 'error: ' + e.message;
+    console.error(e);
+  }
+}
+
+$('file').addEventListener('change', (e) => guard(async () => {
+  await loadFile(e.target.files[0]);
+  $('status').textContent = 'loaded';
+}));
+
+$('run-rvfc').addEventListener('click', () => guard(async () => {
+  const r = await runRVFC(params());
+  lastResults.runs.push(r); render();
+}));
+
+$('run-sweep').addEventListener('click', () => guard(async () => {
+  const { size, mode } = params();
+  for (const rate of [1, 2, 4, 8]) {
+    $('status').textContent = `rVFC sweep… rate ${rate}×`;
+    lastResults.runs.push(await runRVFC({ size, rate, mode }));
+    render();
+  }
+}));
+
+$('run-modes').addEventListener('click', () => guard(async () => {
+  const { size } = params();
+  for (const mode of ['wrf', 'gpu', 'bitmap']) {
+    $('status').textContent = `capture mode ${mode}…`;
+    lastResults.runs.push(await runRVFC({ size, rate: 2, mode }));
+    render();
+  }
+}));
+
+$('run-seek').addEventListener('click', () => guard(async () => {
+  const p = params();
+  const r = await runSeek({ size: p.size, fps: p.fps, windowSec: p.windowSec, mode: p.mode });
+  lastResults.runs.push(r); render();
+}));
+
+$('copy').addEventListener('click', async () => {
+  await navigator.clipboard.writeText(JSON.stringify(lastResults, null, 2));
+  $('status').textContent = 'results copied to clipboard';
+});
+
+// Headless/automation mode: ?autorun=flash-3hz-1080p30.mp4
+(async () => {
+  const auto = new URLSearchParams(location.search).get('autorun');
+  if (!auto) return;
+  const pre = document.createElement('pre');
+  pre.id = 'autorun-output';
+  document.body.appendChild(pre);
+  try {
+    const blob = await (await fetch(auto)).blob();
+    await loadFile(new File([blob], auto, { type: blob.type || 'video/mp4' }));
+    for (const mode of ['wrf', 'gpu', 'bitmap']) {
+      lastResults.runs.push(await runRVFC({ size: 64, rate: 2, mode }));
+    }
+    for (const rate of [1, 2, 4, 8]) lastResults.runs.push(await runRVFC({ size: 64, rate, mode: 'gpu' }));
+    lastResults.runs.push(await runSeek({ size: 64, fps: 15, windowSec: 8, mode: 'gpu' }));
+    render();
+    pre.textContent = 'AUTORUN_RESULT ' + JSON.stringify(lastResults);
+  } catch (e) {
+    pre.textContent = 'AUTORUN_ERROR ' + e.message;
+  }
+})();
+
+render();
+</script>
+</body>
+</html>
