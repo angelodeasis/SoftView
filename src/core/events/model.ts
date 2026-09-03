@@ -51,6 +51,20 @@ export interface SensoryEvent {
   readonly metrics: Readonly<Record<string, number>>;
 }
 
+/**
+ * What an analyzer emits per candidate event. The `id` and `severity` fields are filled
+ * in by {@link normalizeEvents} — `id` deterministically from `channel` + `kind` +
+ * `startTime`, `severity` from `severityScore` — so an analyzer can neither drift the
+ * two intensity fields apart nor mint unstable ids.
+ */
+export type RawEvent = Omit<SensoryEvent, 'id' | 'severity'>;
+
+/**
+ * Identifier for an analysis engine. Seeded with the analyzers SoftView ships; extend
+ * this union in the phase that adds a new analyzer.
+ */
+export type AnalyzerId = 'audio-loudness' | 'visual-flash';
+
 const HIGH_SEVERITY_THRESHOLD = 0.66;
 const MODERATE_SEVERITY_THRESHOLD = 0.33;
 
