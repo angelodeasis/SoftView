@@ -48,4 +48,29 @@ describe('EventList', () => {
     expect(screen.getByText('riseDb')).toBeInTheDocument();
     expect(screen.getByText('14')).toBeInTheDocument();
   });
+
+  it('gives each event a distinct accessible name for its details disclosure', () => {
+    const { container } = render(
+      <EventList
+        events={[
+          event({ id: 'a', startTime: 12, endTime: 13, peakTime: 12 }),
+          event({
+            id: 'b',
+            startTime: 40,
+            endTime: 41,
+            peakTime: 40,
+            channel: 'visual',
+            kind: 'flashing',
+          }),
+        ]}
+        onSeek={vi.fn()}
+      />,
+    );
+    const names = Array.from(container.querySelectorAll('summary')).map((el) =>
+      el.getAttribute('aria-label'),
+    );
+    expect(names[0]).toMatch(/0:12, sudden loud sound/i);
+    expect(names[1]).toMatch(/0:40, rapid flashing/i);
+    expect(names[0]).not.toEqual(names[1]);
+  });
 });

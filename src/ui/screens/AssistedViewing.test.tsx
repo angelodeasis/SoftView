@@ -43,4 +43,9 @@ describe('AssistedViewing', () => {
     fireEvent.click(screen.getByRole('button', { name: /exit assisted viewing/i }));
     expect(onExit).toHaveBeenCalledOnce();
   });
+
+  it('moves focus to its heading on mount, since it replaces the button that opened it', () => {
+    render(<AssistedViewing descriptor={descriptor} result={result} onExit={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: /assisted viewing/i })).toHaveFocus();
+  });
 });

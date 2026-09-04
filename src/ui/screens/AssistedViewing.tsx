@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type { AnalysisResult } from '../../core/events/analysisResult';
 import type { MediaDescriptor } from '../../media/MediaDescriptor';
 import { MediaPlayer } from '../components/MediaPlayer';
@@ -16,11 +16,20 @@ interface Props {
  */
 export function AssistedViewing({ descriptor, result, onExit }: Props) {
   const playerRef = useRef<HTMLVideoElement | HTMLAudioElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const { status } = useAssistedPlayback(playerRef, result.events);
+
+  // Replaces the whole review view (including the "Start Assisted Viewing" button the
+  // user just activated) — without this, focus would drop to <body> on entry.
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
 
   return (
     <section className="assisted" aria-labelledby="assisted-heading">
-      <h2 id="assisted-heading">Assisted Viewing</h2>
+      <h2 id="assisted-heading" ref={headingRef} tabIndex={-1}>
+        Assisted Viewing
+      </h2>
       <p className="assisted__note">
         Audio, brightness, and colour are gently reduced during flagged moments, then gradually
         restored.

@@ -6,23 +6,25 @@ only tracks session-to-session state.
 
 ---
 
-## 2026-09-04 — main @ a629e6e, Phase 8 uncommitted in working tree
+## 2026-09-04 — main @ 2c6296b, Phase 9 uncommitted in working tree
 
 ### Summary
 
 Went from an empty repo (readme + license only) through a design plan, three validation
-spikes, and eight implementation phases. **Phases 0–7 are committed and pushed** — the
-app runs a full analysis end to end (select → Analyze → progress → results), verified in
-the real-browser pass (which found and fixed two bugs along the way — see Bugs below;
-Firefox + Stop mid-run are still unexercised). **Phase 8 — Assisted Viewing, the feature
-the project is named for — is complete in the working tree, not committed**, real-browser
+spikes, and **Phases 0–8, all committed and pushed** — the app runs the full experience
+end to end: select → Analyze → progress → results → Assisted Viewing, user-confirmed in
+the browser including two rounds of deepening audio ducking and adding colour
+desaturation. **Phase 9 — hardening (error boundary, playback-failure fallback, a11y
+focus-management fixes) — is complete in the working tree, not committed**, real-browser
 verification pending.
 
 - **Phases 0–3:** `669b254` → `3cf45f1 "Testing mp3/mp4 file handling"` (Phases 0–1) →
   `ec247aa "Phase 3 push"` (Phases 2–3).
 - **Phases 4–7 + both bugfixes:** `a629e6e "MP3 and MP4 Audio Analysis"`.
-- `main` is in sync with `origin/main`. Working tree = Phase 8, uncommitted. All checks
-  green (201 tests).
+- **Phase 8 (Assisted Viewing) + the audio-target tuning + colour desaturation:**
+  `2c6296b "assisted viewing"`.
+- `main` is in sync with `origin/main`. Working tree = Phase 9, uncommitted. All checks
+  green (216 tests).
 
 ### Committed
 
@@ -36,6 +38,11 @@ verification pending.
   real-browser-pass bugfixes (scene-change misclassification, seek-target lag). The
   sections below headed "Phase 4" through "Phase 7" and the two "Fixed" bugs describe
   what's in `a629e6e`.
+- `2c6296b "assisted viewing"` — Phase 8 (the `mitigationAt` envelope, the
+  `useAssistedPlayback` hook, the Assisted Viewing screen) plus the post-review tuning:
+  `DEFAULT_AUDIO_TARGETS` deepened twice, and colour desaturation (`saturation` /
+  `DEFAULT_SATURATION_TARGETS`) added to visual mitigation. The section below headed
+  "Phase 8" describes what's in `2c6296b`.
 
 ### Committed detail (3cf45f1)
 
@@ -266,7 +273,7 @@ AnalysisResult`. **Sequential: audio then video.** Both adapters injectable. MP4
   reduced-motion conventions.
 - +35 tests (149 → 184). `App.test.tsx`: select MP3 → Analyze (fake `run`) → results.
 
-### Phase 8 — Assisted Viewing (complete in working tree, NOT committed)
+### Phase 8 — Assisted Viewing (committed in `2c6296b`)
 
 The feature the project is named for. No new deps, no config changes — native
 `HTMLMediaElement.volume` + CSS `filter: brightness()`, both browser-native.
@@ -305,21 +312,66 @@ state.status === 'done'`, renders only `<AssistedViewing>`; otherwise the normal
   events, full target in the hold region, symmetric fade-in/out, exact boundary, deepest
   overlapping cut wins, `scene-change` never dims, custom targets/fade, zero-fade step),
   `AssistedViewing.test.tsx` (2), `ResultsPanel.test.tsx` (+1), `App.test.tsx` (+1, start
-  → exit).
+  → exit). (Phase 8's own post-review tuning — audio targets deepened twice, colour
+  desaturation added — is folded into the "Phase 8 design choices" block below since it
+  landed in the same commit.)
+
+### Phase 9 — hardening (complete in working tree, NOT committed)
+
+Closes the README checklist items never explicitly targeted: error handling, large-file
+behavior, a final accessibility pass. No new deps, no config changes.
+
+- **Error boundary, scoped to analysis/results (not the whole app).**
+  `src/ui/components/ErrorBoundary.tsx` — a class component (React error boundaries need
+  `componentDidCatch`/`getDerivedStateFromError`; no hook equivalent), `fallback` is a
+  render-prop receiving a `reset()`. `src/ui/components/CrashNotice.tsx` — the fallback UI
+  (`role="alert"`, soft-language, "your file was never uploaded, this wasn't a data
+  issue", a **Back to start** button). `src/App.tsx` wraps only
+  `AnalyzeControls`/`ResultsPanel`/`AssistedViewing` in it; `SelectMedia` and the raw
+  preview player are hoisted outside so they stay usable through a crash. Back to start
+  calls the boundary's `reset()` **and** the analysis store's `reset()` **and**
+  `setAssisted(false)` — a full return to "file selected, nothing analyzed", no reload.
+- **`MediaPlayer.tsx` surfaces local playback failures.** An `onError` handler +local
+  `broken` state swaps the element for a `role="alert"` message ("couldn't be played
+  back... SoftView may still be able to analyze it") instead of a silently broken
+  control. `App.tsx`'s preview instance gets `key={descriptor.objectUrl}` so `broken`
+  resets per file (the Assisted Viewing screen's own instance already remounts fresh per
+  session, no key needed).
+- **The large-file advisory now also shows by the Analyze button**, not just in the facts
+  panel — `AnalyzeControls` gained an optional `advisory` prop (reuses the existing
+  `advisory`/`advisory--{level}` styles), `App.tsx` computes it once via
+  `largeFileAdvisory` and passes it down. **Stays non-blocking** per the user's choice —
+  purely a second look at the same information, no confirmation gate.
+- **Accessibility: focus management was the one real gap found.** Entering/exiting
+  Assisted Viewing and completing an analysis all replace the button the user just
+  activated; unhandled, the browser drops focus to `<body>`. Fix: `ResultsPanel` and
+  `AssistedViewing`'s headings get a ref + `tabIndex={-1}` + a mount-only
+  `useEffect(() => ref.current?.focus(), [])`. Because both components fully
+  unmount/remount on every relevant transition, this single pattern in each covers **all
+  four** transitions (analysis completing, entering Assisted Viewing, exiting back to
+  review) with no extra wiring. Everything else audited (heading hierarchy, accessible
+  names, keyboard reach) was already sound from Phases 1/7/8.
+- **`EventList`'s per-event disclosure** — each `<summary>Details</summary>` had the same
+  accessible name for every event; now `aria-label="Details for {time}, {kind}"` per row.
+- +13 tests (203 → 216): `ErrorBoundary.test.tsx` (3), `CrashNotice.test.tsx` (2),
+  `MediaPlayer.test.tsx` (3, incl. a new file — this component had none before),
+  `AnalyzeControls.test.tsx` (+2, advisory shown/absent), `ResultsPanel.test.tsx` (+1,
+  heading gets focus), `AssistedViewing.test.tsx` (+1, heading gets focus),
+  `EventList.test.tsx` (+1, distinct accessible names).
 
 ### In progress
 
-- Nothing mid-edit. Phase 8 is complete in the working tree (Phases 0–7 committed); all
-  checks pass. **The real-browser pass for Phase 8 is the next step** — dev server is up.
+- Nothing mid-edit. Phase 9 is complete in the working tree (Phases 0–8 committed); all
+  checks pass. **The real-browser pass for Phase 9 is the next step** — dev server is up.
 
 ### Planned / not started
 
-- Phase 9 per the design plan: hardening.
-- **Real-browser pass for Phase 8 (do this next):** on the beep MP3, confirm volume
-  audibly dips and recovers around the beep; on the flash MP4, confirm the video visibly
-  dims and recovers around the flash; confirm Exit returns to review with the raw preview
-  player unaffected (no lingering volume/filter changes); confirm seeking mid-Assisted-
-  Viewing, both paused and while playing, updates the dim/volume state correctly.
+- **Real-browser pass for Phase 9 (do this next):** trigger a crash deliberately to
+  confirm the boundary + Back to start actually recovers without a reload, and that
+  `SelectMedia`/preview keep working throughout; confirm focus lands on the results
+  heading after Analyze, the Assisted Viewing heading after Start, and back on the
+  results heading after Exit; confirm a corrupted/renamed file shows the new
+  `MediaPlayer` fallback message.
 - **Standing real-browser gaps (Phases 4–7):** Stop mid-run, and a full pass in
   **Firefox** (audio resample fallback, `frameSampler` seek-loop) — still not exercised.
   Revisit before shipping.
@@ -332,7 +384,9 @@ state.status === 'done'`, renders only `<AssistedViewing>`; otherwise the normal
   - Phase 6: `frameSampler`'s rVFC coarse loop, the Firefox whole-file seek-loop fallback,
     canvas `drawImage`/`getImageData` readback, `<video>` `loadedmetadata` + `duration`,
     playbackRate, and the abort→`video.pause()` paths.
-  - Phase 8: `useAssistedPlayback`'s rAF loop, live `.volume`/`.style.filter` mutation.
+  - Phase 8: `useAssistedPlayback`'s rAF loop, live `.volume`/`.style.filter` mutation —
+    eyeballed and confirmed by the user in Chrome (incl. the tuning rounds); Firefox and
+    automated coverage are still open.
 - R2 capture-cost micro-optimisation (willReadFrequently vs GPU canvas vs
   `createImageBitmap`) deliberately not chased — revisit only if the coarse pass feels slow.
 - Whether to keep `spikes/` long-term or delete it — user's call; nothing depends on it.
@@ -436,6 +490,17 @@ state.status === 'done'`, renders only `<AssistedViewing>`; otherwise the normal
     `scene-change` stays excluded, same as brightness. `useAssistedPlayback` now sets
     `filter: brightness(...) saturate(...)` together. +2 tests (envelope: 9 → 11; total
     201 → 203).
+- **Phase 9 design choices (with the user):**
+  - **Error boundary scoped to analysis/results, not the whole app** — a crash there
+    shouldn't take `SelectMedia` or the raw preview player down with it, and "Back to
+    start" (boundary reset + analysis reset + `assisted=false`) is a full recovery
+    without a page reload.
+  - **Large-file behavior stays non-blocking** — the existing advisory is shown a second
+    time, by the Analyze button, rather than gating Analyze behind a confirmation step.
+  - **Full accessibility audit**, not a light skim — focus management (headings losing
+    focus to `<body>` on the four review/Assisted-Viewing transitions) was the one real
+    gap; fixed via `tabIndex={-1}` + mount-focus on `ResultsPanel`/`AssistedViewing`'s
+    headings, which covers all four transitions from two small, identical additions.
 - **TypeScript** over JS/JSDoc (README still says "JavaScript"; not updated).
 - **No state library, no WebCodecs, no mp4box.js, no ffmpeg, no new deps** — none
   justified yet (the worker, linear resampler, app state, and Assisted Viewing's envelope
@@ -475,29 +540,27 @@ state.status === 'done'`, renders only `<AssistedViewing>`; otherwise the normal
   `prettier --write` pass. Consider a pre-commit hook, or just run `format` before `build`.
   (Phase 2: ran `npm run format` before committing checks — clean.)
 
-### Test / build status (run 2026-09-04, after Phase 8 + audio-target tuning + saturation)
+### Test / build status (run 2026-09-04, after Phase 9)
 
-- Lint: PASS (0 problems) · Typecheck: PASS (**4** tsconfigs, incl. `envelope.ts` under
-  the no-DOM core config) · Format: PASS
-- Tests: **203 passed / 203** (35 files; `core` in node, `browser` in jsdom)
-- Build: PASS — bundle grew modestly, no new chunks: main bundle 221 → **223.2 kB**
-  (71.2 kB gzip), CSS 4.7 → 5.2 kB, 69 modules (was 66); the audio worker chunk is
+- Lint: PASS (0 problems) · Typecheck: PASS (**4** tsconfigs) · Format: PASS
+- Tests: **216 passed / 216** (38 files; `core` in node, `browser` in jsdom)
+- Build: PASS — bundle grew modestly, no new chunks: main bundle 223.2 → **224.85 kB**
+  (71.7 kB gzip), CSS 5.2 → 5.7 kB, 71 modules (was 69); the audio worker chunk is
   unchanged (4.5 kB).
 
 ### Next session should start with
 
-**The real-browser pass for Phase 8** (dev server is up) — beep MP3: volume dips/recovers
-around the beep; flash MP4: video dims/recovers around the flash; Exit leaves the raw
-preview player unaffected; seeking mid-Assisted-Viewing (paused and playing) updates
-correctly. Then review + commit Phase 8, and either close the standing Phase 4–7 Firefox
-
-- Stop-mid-run gaps or move on to **Phase 9** (hardening: error boundaries, large-file
-  behavior, final accessibility pass).
+**The real-browser pass for Phase 9** (dev server is up) — trigger a crash to confirm the
+boundary + Back to start recovers cleanly; confirm focus lands correctly across the four
+review/Assisted-Viewing transitions; confirm a broken file shows the new `MediaPlayer`
+fallback. Then review + commit Phase 9, and close the standing Phase 4–7 gaps (Stop
+mid-run, a full Firefox pass) before considering this shippable.
 
 ### Git state
 
-`main` @ `a629e6e`, in sync with `origin/main`. Phases 0–7 (and the two real-browser-pass
-bugfixes) committed and pushed. Working tree = Phase 8 (`src/core/assistedViewing/`,
-`src/ui/useAssistedPlayback.ts`, `src/ui/screens/AssistedViewing.tsx` + test, plus edits
-to `ResultsPanel.tsx` + test, `App.tsx` + test, `SESSION.md`, `src/index.css`), awaiting
-the user's review and commit; nothing branched or stashed.
+`main` @ `2c6296b`, in sync with `origin/main`. Phases 0–8 (all bugfixes and tuning
+rounds included) committed and pushed. Working tree = Phase 9
+(`src/ui/components/{ErrorBoundary,CrashNotice}.tsx` + tests, plus edits to
+`MediaPlayer.tsx`, `AnalyzeControls.tsx`, `ResultsPanel.tsx`, `EventList.tsx`,
+`AssistedViewing.tsx`, `App.tsx`, `src/index.css`, `SESSION.md`, all with matching test
+updates), awaiting the user's review and commit; nothing branched or stashed.

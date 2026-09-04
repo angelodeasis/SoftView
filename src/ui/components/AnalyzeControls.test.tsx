@@ -71,4 +71,21 @@ describe('AnalyzeControls', () => {
     fireEvent.click(screen.getByRole('button', { name: /analyze this file/i }));
     expect(await screen.findByRole('alert')).toHaveTextContent('worker died');
   });
+
+  it('shows the advisory when one is passed', () => {
+    render(
+      <AnalysisProvider run={() => new Promise(() => {})}>
+        <AnalyzeControls
+          onAnalyze={vi.fn()}
+          advisory={{ level: 'warn', message: 'This is a long file.' }}
+        />
+      </AnalysisProvider>,
+    );
+    expect(screen.getByText('This is a long file.')).toHaveClass('advisory--warn');
+  });
+
+  it('shows nothing extra when there is no advisory', () => {
+    render(<Harness run={() => new Promise(() => {})} />);
+    expect(document.querySelector('.advisory')).toBeNull();
+  });
 });

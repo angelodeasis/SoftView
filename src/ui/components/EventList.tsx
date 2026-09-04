@@ -47,7 +47,7 @@ export function EventList({ events, onSeek }: Props) {
               <span className="events__confidence">{confidencePhrase(e.confidence)}</span>
             </button>
             <details className="events__detail">
-              <summary>Details</summary>
+              <summary aria-label={`Details for ${start}, ${label}`}>Details</summary>
               <dl>
                 <div>
                   <dt>Span</dt>

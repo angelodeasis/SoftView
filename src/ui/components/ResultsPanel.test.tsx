@@ -81,4 +81,10 @@ describe('ResultsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /start assisted viewing/i }));
     expect(onStartAssistedViewing).toHaveBeenCalledOnce();
   });
+
+  it('moves focus to its heading on mount, for screen-reader users landing here', () => {
+    const result = buildAnalysisResult({ media, runs: [okRun], rawEvents: [], durationSec: 120 });
+    render(<ResultsPanel result={result} onSeek={vi.fn()} onStartAssistedViewing={vi.fn()} />);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveFocus();
+  });
 });

@@ -1,16 +1,19 @@
+import type { MediaAdvisory } from '../../core/media/largeFileAdvisory';
 import { useAnalysis } from '../../state/analysisStore';
 
 interface Props {
   /** Start analysis. Undefined disables the button (e.g. duration not yet known). */
   onAnalyze?: () => void;
   disabledReason?: string;
+  /** Surfaced again here (also shown in the facts panel) right at the point of commitment. */
+  advisory?: MediaAdvisory | null;
 }
 
 /**
  * The Analyze button and, while a run is in progress, a progress bar + Stop control.
  * Reads the analysis lifecycle from {@link useAnalysis}.
  */
-export function AnalyzeControls({ onAnalyze, disabledReason }: Props) {
+export function AnalyzeControls({ onAnalyze, disabledReason, advisory }: Props) {
   const { state, cancel } = useAnalysis();
 
   if (state.status === 'running') {
@@ -49,6 +52,7 @@ export function AnalyzeControls({ onAnalyze, disabledReason }: Props) {
           {state.message}
         </p>
       )}
+      {advisory && <p className={`advisory advisory--${advisory.level}`}>{advisory.message}</p>}
       <p className="analyze__note">
         {disabledReason ??
           'Analysis runs entirely on your device. Video analysis can take several minutes.'}

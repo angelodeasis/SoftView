@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { largeFileAdvisory } from './core/media/largeFileAdvisory';
 import { useAnalysis } from './state/analysisStore';
 import type { MediaDescriptor } from './media/MediaDescriptor';
 import { SelectMedia } from './ui/screens/SelectMedia';
@@ -6,6 +7,8 @@ import { AssistedViewing } from './ui/screens/AssistedViewing';
 import { MediaPlayer } from './ui/components/MediaPlayer';
 import { AnalyzeControls } from './ui/components/AnalyzeControls';
 import { ResultsPanel } from './ui/components/ResultsPanel';
+import { ErrorBoundary } from './ui/components/ErrorBoundary';
+import { CrashNotice } from './ui/components/CrashNotice';
 
 export function App() {
   const { state, analyze, reset } = useAnalysis();
@@ -41,6 +44,12 @@ export function App() {
   const durationSec = descriptor?.facts.durationSec;
   const canAnalyze = durationSec !== undefined && durationSec > 0;
 
+  const advisory = useMemo(
+    () =>
+      descriptor ? largeFileAdvisory({ sizeBytes: descriptor.facts.sizeBytes, durationSec }) : null,
+    [descriptor, durationSec],
+  );
+
   const onAnalyze =
     descriptor && canAnalyze
       ? () =>
@@ -65,24 +74,38 @@ export function App() {
         medical device. Your media is analyzed on your device and is never uploaded.
       </p>
 
-      {assisted && descriptor && state.status === 'done' ? (
-        <AssistedViewing
-          descriptor={descriptor}
-          result={state.result}
-          onExit={() => setAssisted(false)}
-        />
-      ) : (
-        <>
-          <SelectMedia descriptor={descriptor} onSelect={onSelect} />
+      <SelectMedia descriptor={descriptor} onSelect={onSelect} />
 
-          {descriptor && (
-            <>
-              <MediaPlayer
-                ref={playerRef}
-                src={descriptor.objectUrl}
-                kind={descriptor.kind}
-                label={`Preview of ${descriptor.facts.name}`}
-              />
+      {descriptor && !assisted && (
+        <MediaPlayer
+          ref={playerRef}
+          key={descriptor.objectUrl}
+          src={descriptor.objectUrl}
+          kind={descriptor.kind}
+          label={`Preview of ${descriptor.facts.name}`}
+        />
+      )}
+
+      <ErrorBoundary
+        fallback={(boundaryReset) => (
+          <CrashNotice
+            onReset={() => {
+              boundaryReset();
+              reset();
+              setAssisted(false);
+            }}
+          />
+        )}
+      >
+        {assisted && descriptor && state.status === 'done' ? (
+          <AssistedViewing
+            descriptor={descriptor}
+            result={state.result}
+            onExit={() => setAssisted(false)}
+          />
+        ) : (
+          <>
+            {descriptor && (
               <AnalyzeControls
                 onAnalyze={onAnalyze}
                 disabledReason={
@@ -90,19 +113,20 @@ export function App() {
                     ? undefined
                     : 'SoftView needs the media duration before it can analyze — try re-selecting the file.'
                 }
+                advisory={advisory}
               />
-            </>
-          )}
+            )}
 
-          {state.status === 'done' && (
-            <ResultsPanel
-              result={state.result}
-              onSeek={seekTo}
-              onStartAssistedViewing={() => setAssisted(true)}
-            />
-          )}
-        </>
-      )}
+            {state.status === 'done' && (
+              <ResultsPanel
+                result={state.result}
+                onSeek={seekTo}
+                onStartAssistedViewing={() => setAssisted(true)}
+              />
+            )}
+          </>
+        )}
+      </ErrorBoundary>
     </main>
   );
 }

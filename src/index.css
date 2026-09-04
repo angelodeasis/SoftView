@@ -409,3 +409,36 @@ video.player {
   font-size: 0.9rem;
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
+
+/* --- Playback / crash fallbacks --- */
+
+.player-error {
+  margin-top: 1.5rem;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid #d64545;
+  background: color-mix(in srgb, #d64545 10%, transparent);
+  font-size: 0.95rem;
+}
+
+.crash {
+  margin-top: 1.5rem;
+  padding: 1rem 1.25rem;
+  border-left: 3px solid #d64545;
+  background: color-mix(in srgb, #d64545 8%, transparent);
+}
+
+.crash h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.crash button {
+  font: inherit;
+  margin-top: 0.75rem;
+  padding: 0.5rem 1.1rem;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--fg);
+  cursor: pointer;
+}
