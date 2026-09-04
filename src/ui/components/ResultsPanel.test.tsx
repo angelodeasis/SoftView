@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { buildAnalysisResult } from '../../core/events/analysisResult';
 import type { AnalyzerRun } from '../../core/events/analysisResult';
 import type { MediaFacts } from '../../core/media/types';
@@ -44,7 +44,9 @@ describe('ResultsPanel', () => {
       ],
       durationSec: 120,
     });
-    const { container } = render(<ResultsPanel result={result} onSeek={vi.fn()} />);
+    const { container } = render(
+      <ResultsPanel result={result} onSeek={vi.fn()} onStartAssistedViewing={vi.fn()} />,
+    );
 
     expect(
       screen.getByRole('heading', { name: /potential sensory events \(2\)/i }),
@@ -61,8 +63,22 @@ describe('ResultsPanel', () => {
       rawEvents: [],
       durationSec: 120,
     });
-    render(<ResultsPanel result={result} onSeek={vi.fn()} />);
+    render(<ResultsPanel result={result} onSeek={vi.fn()} onStartAssistedViewing={vi.fn()} />);
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/incomplete/i);
     expect(screen.getByText(/some analysis did not finish/i)).toBeInTheDocument();
+  });
+
+  it('offers a way into Assisted Viewing', () => {
+    const result = buildAnalysisResult({ media, runs: [okRun], rawEvents: [], durationSec: 120 });
+    const onStartAssistedViewing = vi.fn();
+    render(
+      <ResultsPanel
+        result={result}
+        onSeek={vi.fn()}
+        onStartAssistedViewing={onStartAssistedViewing}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /start assisted viewing/i }));
+    expect(onStartAssistedViewing).toHaveBeenCalledOnce();
   });
 });

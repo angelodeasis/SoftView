@@ -378,3 +378,34 @@ video.player {
   color: var(--sev-moderate);
   font-weight: 600;
 }
+
+.results__start-assisted {
+  margin-top: 1.5rem;
+  font: inherit;
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+  cursor: pointer;
+}
+
+/* --- Assisted Viewing --- */
+
+.assisted {
+  margin-top: 1.5rem;
+}
+
+.assisted__note {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.assisted__status {
+  margin: 0.75rem 0;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  min-height: 1.4em;
+  font-size: 0.9rem;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}

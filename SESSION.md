@@ -6,23 +6,23 @@ only tracks session-to-session state.
 
 ---
 
-## 2026-09-04 — main @ ec247aa, Phases 4–7 uncommitted in working tree
+## 2026-09-04 — main @ a629e6e, Phase 8 uncommitted in working tree
 
 ### Summary
 
 Went from an empty repo (readme + license only) through a design plan, three validation
-spikes, and the first eight implementation phases (0–7). **The app now runs a full
-analysis end to end** — select → Analyze → progress → event list + timeline + limitations.
-Remaining for the MVP: the real-browser pass of Phase 7, then Assisted Viewing (Phase 8)
-and hardening (Phase 9).
+spikes, and eight implementation phases. **Phases 0–7 are committed and pushed** — the
+app runs a full analysis end to end (select → Analyze → progress → results), verified in
+the real-browser pass (which found and fixed two bugs along the way — see Bugs below;
+Firefox + Stop mid-run are still unexercised). **Phase 8 — Assisted Viewing, the feature
+the project is named for — is complete in the working tree, not committed**, real-browser
+verification pending.
 
-- **Phases 0–3 are committed and pushed:** `669b254` → `3cf45f1 "Testing mp3/mp4 file
-handling"` (Phases 0–1) → `ec247aa "Phase 3 push"` (Phases 2–3). `main` is in sync with
-  `origin/main`.
-- **Phases 4–7 are complete in the working tree, not committed** — the user reviews and
-  commits. All checks green (188 tests); the real-browser pass found and fixed two bugs
-  (scene-change misclassification, seek-target lag — see Bugs below) and is still in
-  progress.
+- **Phases 0–3:** `669b254` → `3cf45f1 "Testing mp3/mp4 file handling"` (Phases 0–1) →
+  `ec247aa "Phase 3 push"` (Phases 2–3).
+- **Phases 4–7 + both bugfixes:** `a629e6e "MP3 and MP4 Audio Analysis"`.
+- `main` is in sync with `origin/main`. Working tree = Phase 8, uncommitted. All checks
+  green (201 tests).
 
 ### Committed
 
@@ -31,6 +31,11 @@ handling"` (Phases 0–1) → `ec247aa "Phase 3 push"` (Phases 2–3). `main` is
   local media selection + playback).
 - `ec247aa "Phase 3 push"` — Phases 2–3 (common event model + testing kit; audio loudness
   analyzer). The sections below headed "Phase 2" / "Phase 3" describe what's in `ec247aa`.
+- `a629e6e "MP3 and MP4 Audio Analysis"` — Phases 4–7 (audio decode adapter, visual flash
+  analyzer, video frame-capture adapter, orchestration + results UI) plus the two
+  real-browser-pass bugfixes (scene-change misclassification, seek-target lag). The
+  sections below headed "Phase 4" through "Phase 7" and the two "Fixed" bugs describe
+  what's in `a629e6e`.
 
 ### Committed detail (3cf45f1)
 
@@ -117,7 +122,7 @@ toneHz?, baselineDb?, noiseAmp?, seed?, events? }) → { pcm, sampleRate, ground
 normalizeEvents`, scored with `scoreDetections` (recall 1 on the combined-signal case).
 - +24 tests (72 → 96).
 
-### Completed in working tree — NOT committed (Phase 4 — audio decode adapter, first `src/adapters/`)
+### Phase 4 — audio decode adapter, first `src/adapters/` (committed in `a629e6e`)
 
 Browser glue. First code under `src/adapters/`. First worker. First config changes since
 Phase 0. Nothing in the app imports it yet, so it tree-shakes out of the build.
@@ -156,7 +161,7 @@ AudioTrackAnalysis` (downmix → resample if ≠16k → `computeLoudness` → `a
   from `ui/` / `state/` / `runtime/`.
 - +20 tests (96 → 116).
 
-### Completed in working tree — NOT committed (Phase 5 — visual flash analyzer)
+### Phase 5 — visual flash analyzer (committed in `a629e6e`)
 
 Pure `src/core/video/` only. No adapters, no UI, no new deps, no config changes.
 Tree-shakes out of the build until Phase 6 wires it.
@@ -186,7 +191,7 @@ opts?) → RawEvent[]`. `redness` is accepted (mirrors `analyzeLoudness({ rms, p
 - +11 tests (116 → 127). `analyzeFlash.test.ts` runs `genBrightnessSeries →
 analyzeVisualFlash → normalizeEvents`, scored with `scoreDetections`.
 
-### Completed in working tree — NOT committed (Phase 6 — video frame-capture adapter)
+### Phase 6 — video frame-capture adapter (committed in `a629e6e`)
 
 Browser glue in `src/adapters/video/` + two pure `src/core/video/` helpers. No worker
 (`<video>` / canvas / rVFC are `Exposed=Window`). No config changes. Nothing in the app
@@ -224,7 +229,7 @@ downscalePx?, refinePadSec?, refineFps?, refineAroundSec? }`), `VideoTrackAnalys
 - +22 tests (127 → 149). Pipeline tested with fake scans returning `genBrightnessSeries`
   output.
 
-### Completed in working tree — NOT committed (Phase 7 — orchestration + results UI)
+### Phase 7 — orchestration + results UI (committed in `a629e6e`)
 
 The integration phase. The app now runs a real analysis end to end. No new deps; no
 config changes. **The audio worker chunk is now emitted** (`dist/assets/audioAnalysis.worker-*.js`,
@@ -261,36 +266,75 @@ AnalysisResult`. **Sequential: audio then video.** Both adapters injectable. MP4
   reduced-motion conventions.
 - +35 tests (149 → 184). `App.test.tsx`: select MP3 → Analyze (fake `run`) → results.
 
+### Phase 8 — Assisted Viewing (complete in working tree, NOT committed)
+
+The feature the project is named for. No new deps, no config changes — native
+`HTMLMediaElement.volume` + CSS `filter: brightness()`, both browser-native.
+
+- `src/core/assistedViewing/envelope.ts` (pure) — `mitigationAt(events, currentTime,
+opts?) → { volume, brightness, activeAudioEvent?, activeVisualEvent? }`. Consumes
+  events, never re-detects: a pure function of `(events, currentTime)`, recomputed fresh
+  every call — which is also why seeking "just works" with no special-casing. Per event:
+  padded window `[startTime−fadeSec, endTime+fadeSec]` (`fadeSec` default 0.5s); factor 0
+  outside it, 1 across `[startTime,endTime]`, linear ramp in the fades either side;
+  multiplier `= 1 − factor·(1 − target[severity])`. Overlapping events of the same
+  channel → **minimum** multiplier wins (deepest cut), no special-casing needed — falls
+  out of recomputing per call. Audio-channel events → `volume`; visual-channel events
+  **except `scene-change`** (Phase 5's low-severity context marker) → `brightness`.
+  Default targets: audio low/moderate/high → ×0.7/×0.45/×0.2; visual → ×0.75/×0.55/×0.35.
+- `src/ui/useAssistedPlayback.ts` — `requestAnimationFrame` hook: each tick reads
+  `el.currentTime`, calls `mitigationAt`, sets `el.volume` + `el.style.filter`, derives a
+  plain-language `status` (via `eventKindLabel`) for the live region. Runs continuously
+  (not gated on play/pause) so a paused seek still reflects the right state. DOM-mutation
+  wiring, not a capture adapter — stays in `src/ui/`, not `src/adapters/`; **not
+  unit-tested** (rAF + live DOM mutation), same precedent as `frameSampler.ts` — verified
+  in the real-browser pass instead.
+- `src/ui/screens/AssistedViewing.tsx` — its **own** `MediaPlayer` instance (never
+  alongside the raw preview player — App swaps between the two, never renders both),
+  wires the hook, shows a heading, an explanatory note, an `aria-live="polite"` status
+  line, and an **Exit Assisted Viewing** button.
+- `src/ui/components/ResultsPanel.tsx` — added `onStartAssistedViewing` + a "Start
+  Assisted Viewing" button (a **separate, explicit mode** per the user's choice — not a
+  toggle on the preview player, matching the README's literal flow: review, _then_ start
+  Assisted Viewing).
+- `src/App.tsx` — `const [assisted, setAssisted] = useState(false)`; when `assisted &&
+state.status === 'done'`, renders only `<AssistedViewing>`; otherwise the normal
+  review flow. Selecting a new file resets `assisted` to `false` alongside the existing
+  analysis reset.
+- +13 tests (188 → 201): `envelope.test.ts` (9, the real coverage — no-op far from
+  events, full target in the hold region, symmetric fade-in/out, exact boundary, deepest
+  overlapping cut wins, `scene-change` never dims, custom targets/fade, zero-fade step),
+  `AssistedViewing.test.tsx` (2), `ResultsPanel.test.tsx` (+1), `App.test.tsx` (+1, start
+  → exit).
+
 ### In progress
 
-- Nothing mid-edit. Phases 4–7 are complete in the working tree (Phases 0–3 committed);
-  all checks pass. **Real-browser pass: in progress, one bug found + fixed (see Bugs
-  below), re-verification of the fix is the next step** — dev server is up.
+- Nothing mid-edit. Phase 8 is complete in the working tree (Phases 0–7 committed); all
+  checks pass. **The real-browser pass for Phase 8 is the next step** — dev server is up.
 
 ### Planned / not started
 
-- Phases 8–9 per the design plan: Assisted Viewing → hardening.
-- **Real-browser pass (resume):** re-check the flash video from `test-media/` now
-  reports `luminance-spike` (not `scene-change`) and seeking lands on the flash; then
-  finish the original checklist — MP3 events, MP4 progress bar + audio worker +
-  `frameSampler`, Stop mid-run, event seeking — in Chrome and Firefox. Clears most of the
-  standing browser-code follow-up.
-- **Phase 8 (Assisted Viewing)** — soften the flagged moments during playback: gain
-  ducking / low-pass around audio events, brightness/contrast reduction + gentle
-  transitions around visual events, seeking support, custom controls.
+- Phase 9 per the design plan: hardening.
+- **Real-browser pass for Phase 8 (do this next):** on the beep MP3, confirm volume
+  audibly dips and recovers around the beep; on the flash MP4, confirm the video visibly
+  dims and recovers around the flash; confirm Exit returns to review with the raw preview
+  player unaffected (no lingering volume/filter changes); confirm seeking mid-Assisted-
+  Viewing, both paused and while playing, updates the dim/volume state correctly.
+- **Standing real-browser gaps (Phases 4–7):** Stop mid-run, and a full pass in
+  **Firefox** (audio resample fallback, `frameSampler` seek-loop) — still not exercised.
+  Revisit before shipping.
 
 ### Unresolved questions
 
-- **Growing pile of browser code that only synthetic tests cover — needs a real Chrome +
-  Firefox pass, folded into Phase 7 (or a throwaway harness):**
+- **Growing pile of browser code that only synthetic tests cover:**
   - Phase 4: the worker transport (`new Worker(new URL(...))`), `OfflineAudioContext`
     decode, the Firefox `sampleRate !== 16000` resample branch.
   - Phase 6: `frameSampler`'s rVFC coarse loop, the Firefox whole-file seek-loop fallback,
     canvas `drawImage`/`getImageData` readback, `<video>` `loadedmetadata` + `duration`,
     playbackRate, and the abort→`video.pause()` paths.
+  - Phase 8: `useAssistedPlayback`'s rAF loop, live `.volume`/`.style.filter` mutation.
 - R2 capture-cost micro-optimisation (willReadFrequently vs GPU canvas vs
   `createImageBitmap`) deliberately not chased — revisit only if the coarse pass feels slow.
-- No state-management library yet — deferred until state is shared across screens (~Phase 7).
 - Whether to keep `spikes/` long-term or delete it — user's call; nothing depends on it.
 - `AnalyzerId` is a closed union edited per analyzer phase (not an open string). Revisit
   only if that churn becomes annoying.
@@ -360,12 +404,43 @@ AnalysisResult`. **Sequential: audio then video.** Both adapters injectable. MP4
   - Audio runs before video so its event times feed the video refine pass (sequential).
   - Plain-language event copy lives in `src/core/events/describe.ts` (the soft-language
     mandate is a core concern).
+- **Phase 8 design choices (with the user):**
+  - **Native `.volume` property, not Web Audio API.** No `AudioContext`/`GainNode` graph
+    — simplest mechanism that satisfies "gradually reducing audio"; a richer (low-pass/EQ)
+    mechanism stays a documented future option if plain ducking ever proves insufficient.
+  - **A separate, explicit "Assisted Viewing" mode**, not a toggle on the existing
+    preview player — its own player instance, entered via a button on the results view,
+    with an Exit back to review. Matches the README's literal flow (review, _then_ start
+    Assisted Viewing) and keeps "the user remains in control" unambiguous (one action in,
+    one action out).
+  - **Severity-scaled mitigation depth, `scene-change` excluded** from visual dimming
+    (it's a deliberately low-severity context marker, not an intensity event).
+  - Custom playback controls explicitly deferred again — native `controls` on both
+    players is enough for Phase 8; nothing about softening requires replacing them.
+  - **Tuned deeper twice after real-browser feedback (2026-09-04):**
+    `DEFAULT_AUDIO_TARGETS` low/moderate/high `0.7/0.45/0.2 → 0.55/0.3/0.1 →
+0.3/0.15/0.05` — the user found the beep-MP3 ducking too mild, twice. A `high`
+    severity event now plays at 5% volume. `DEFAULT_VISUAL_TARGETS` untouched throughout.
+    Only the constant changed in `src/core/assistedViewing/envelope.ts`; existing tests
+    reference the exported
+    constant rather than hardcoded numbers, so all 9 stayed green with no edits.
+  - **Colour desaturation added to visual mitigation (2026-09-04, user's idea):** flagged
+    visual moments now also pull toward grayscale (CSS `saturate()`), not just dimmer —
+    reduces flash-trigger potential more broadly than luminance alone, and covers
+    saturated-red specifically (which WCAG/Harding call out) without needing a dedicated
+    red-detection signal. `MitigationLevel` gained `saturation`; `DEFAULT_SATURATION_TARGETS`
+    low/moderate/high = `0.6/0.3/0` (high severity → full grayscale). Deliberately
+    **derived from the same active event/factor that `brightness` picked** (in
+    `channelMultiplier`, which now also returns `factor`), not independently re-selected —
+    the two always move together, one "what's happening visually right now" decision.
+    `scene-change` stays excluded, same as brightness. `useAssistedPlayback` now sets
+    `filter: brightness(...) saturate(...)` together. +2 tests (envelope: 9 → 11; total
+    201 → 203).
 - **TypeScript** over JS/JSDoc (README still says "JavaScript"; not updated).
 - **No state library, no WebCodecs, no mp4box.js, no ffmpeg, no new deps** — none
-  justified yet (the worker, linear resampler, and app state are all hand-rolled /
-  browser-native / React built-ins).
+  justified yet (the worker, linear resampler, app state, and Assisted Viewing's envelope
+  are all hand-rolled / browser-native / React built-ins).
 - Pure media logic lives in `src/core/media/` (boundary is about purity, not just "analysis").
-- Native `<video>`/`<audio>` controls for now; custom controls arrive with Assisted Viewing.
 - `readme.md` / `License` casing left as-is (user's optional cleanup).
 
 ### Bugs / blockers / follow-ups
@@ -400,44 +475,29 @@ AnalysisResult`. **Sequential: audio then video.** Both adapters injectable. MP4
   `prettier --write` pass. Consider a pre-commit hook, or just run `format` before `build`.
   (Phase 2: ran `npm run format` before committing checks — clean.)
 
-### Test / build status (run 2026-09-04, after Phase 7 + the scene-change and seek-target bugfixes)
+### Test / build status (run 2026-09-04, after Phase 8 + audio-target tuning + saturation)
 
-- Lint: PASS (0 problems) · Typecheck: PASS (**4** tsconfigs) · Format: PASS
-- Tests: **188 passed / 188** (33 files; `core` in node, `browser` in jsdom)
-- Build: PASS — **the audio worker chunk is now emitted**
-  (`dist/assets/audioAnalysis.worker-*.js`, 4.5 kB); main bundle 200 → **221 kB**
-  (70.4 kB gzip), CSS 2.0 → 4.7 kB, 66 modules (was 38). All expected — the app now pulls
-  in every analyzer.
+- Lint: PASS (0 problems) · Typecheck: PASS (**4** tsconfigs, incl. `envelope.ts` under
+  the no-DOM core config) · Format: PASS
+- Tests: **203 passed / 203** (35 files; `core` in node, `browser` in jsdom)
+- Build: PASS — bundle grew modestly, no new chunks: main bundle 221 → **223.2 kB**
+  (71.2 kB gzip), CSS 4.7 → 5.2 kB, 69 modules (was 66); the audio worker chunk is
+  unchanged (4.5 kB).
 
 ### Next session should start with
 
-**The real-browser pass** (last Phase-7 task, in progress — two bugs found and fixed so
-far) — `npm run dev` in Chrome + Firefox: re-check the beep MP3 now seeks right before the
-beep, re-check the flash MP4, then finish the original checklist (MP3/MP4 events, progress
-bar, worker + frame sampler, Stop, seeking) in both browsers. Then review + commit Phases
-4–7 and plan **Phase 8** (Assisted Viewing — softening the flagged moments during
-playback: audio ducking/low-pass, brightness/contrast reduction, gentle transitions,
-custom controls).
+**The real-browser pass for Phase 8** (dev server is up) — beep MP3: volume dips/recovers
+around the beep; flash MP4: video dims/recovers around the flash; Exit leaves the raw
+preview player unaffected; seeking mid-Assisted-Viewing (paused and playing) updates
+correctly. Then review + commit Phase 8, and either close the standing Phase 4–7 Firefox
+
+- Stop-mid-run gaps or move on to **Phase 9** (hardening: error boundaries, large-file
+  behavior, final accessibility pass).
 
 ### Git state
 
-`main` @ `ec247aa`, in sync with `origin/main`. Phases 0–3 committed and pushed. Working
-tree = Phases 4–7 (+ the two bugfixes), awaiting the user's review and commit; nothing
-branched or stashed:
-
-- modified (tracked): `SESSION.md`; `eslint.config.js`, `package.json`, `tsconfig.json`
-  (Phase 4); `src/core/testing/generators.ts` + `.test.ts` (Phase 5); `src/core/signal/timeSeries.ts`
-  - `.test.ts` (`minInRange`, bugfix); `src/App.tsx`, `src/main.tsx`, `src/index.css`,
-    `src/ui/screens/SelectMedia.tsx` + `.test.tsx`, `src/ui/components/MediaPlayer.tsx`
-    (Phase 7); `.gitignore` (`test-media/`)
-- new/untracked: `tsconfig.worker.json`; `src/adapters/` (Phases 4, 6); `src/core/audio/{downmix,
-resample}.ts` (Phase 4); `src/core/video/` (Phases 5–6, incl. the scene-change bugfix in
-  `analyzeFlash.ts`); `src/core/events/describe.ts`, `src/runtime/`, `src/state/`,
-  `src/ui/format.ts`, `src/ui/seekTarget.ts` (+ test, bugfix), `src/ui/components/{AnalyzeControls,
-EventList,EventTimeline,LimitationsNotice,ResultsPanel}.tsx`, `src/App.test.tsx` (Phase 7);
-  all with `.test.*`
-
-Phase 4 = audio adapter + worker + config; Phase 5 = `analyzeFlash` + generators
-`scene-change`; Phase 6 = video adapter + `luminance`/`refineWindows`; Phase 7 = runtime +
-state + results UI + the `SelectMedia`/`App` refactor. Commit as one unit, or split by
-phase from the diff.
+`main` @ `a629e6e`, in sync with `origin/main`. Phases 0–7 (and the two real-browser-pass
+bugfixes) committed and pushed. Working tree = Phase 8 (`src/core/assistedViewing/`,
+`src/ui/useAssistedPlayback.ts`, `src/ui/screens/AssistedViewing.tsx` + test, plus edits
+to `ResultsPanel.tsx` + test, `App.tsx` + test, `SESSION.md`, `src/index.css`), awaiting
+the user's review and commit; nothing branched or stashed.

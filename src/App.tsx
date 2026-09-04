@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAnalysis } from './state/analysisStore';
 import type { MediaDescriptor } from './media/MediaDescriptor';
 import { SelectMedia } from './ui/screens/SelectMedia';
+import { AssistedViewing } from './ui/screens/AssistedViewing';
 import { MediaPlayer } from './ui/components/MediaPlayer';
 import { AnalyzeControls } from './ui/components/AnalyzeControls';
 import { ResultsPanel } from './ui/components/ResultsPanel';
@@ -9,6 +10,7 @@ import { ResultsPanel } from './ui/components/ResultsPanel';
 export function App() {
   const { state, analyze, reset } = useAnalysis();
   const [descriptor, setDescriptor] = useState<MediaDescriptor | null>(null);
+  const [assisted, setAssisted] = useState(false);
   const playerRef = useRef<HTMLVideoElement | HTMLAudioElement>(null);
   const latest = useRef<MediaDescriptor | null>(null);
 
@@ -21,6 +23,7 @@ export function App() {
       if (prev && prev.objectUrl !== next.objectUrl) {
         prev.revoke();
         reset();
+        setAssisted(false);
       }
       latest.current = next;
       setDescriptor(next);
@@ -62,28 +65,44 @@ export function App() {
         medical device. Your media is analyzed on your device and is never uploaded.
       </p>
 
-      <SelectMedia descriptor={descriptor} onSelect={onSelect} />
-
-      {descriptor && (
+      {assisted && descriptor && state.status === 'done' ? (
+        <AssistedViewing
+          descriptor={descriptor}
+          result={state.result}
+          onExit={() => setAssisted(false)}
+        />
+      ) : (
         <>
-          <MediaPlayer
-            ref={playerRef}
-            src={descriptor.objectUrl}
-            kind={descriptor.kind}
-            label={`Preview of ${descriptor.facts.name}`}
-          />
-          <AnalyzeControls
-            onAnalyze={onAnalyze}
-            disabledReason={
-              canAnalyze
-                ? undefined
-                : 'SoftView needs the media duration before it can analyze — try re-selecting the file.'
-            }
-          />
+          <SelectMedia descriptor={descriptor} onSelect={onSelect} />
+
+          {descriptor && (
+            <>
+              <MediaPlayer
+                ref={playerRef}
+                src={descriptor.objectUrl}
+                kind={descriptor.kind}
+                label={`Preview of ${descriptor.facts.name}`}
+              />
+              <AnalyzeControls
+                onAnalyze={onAnalyze}
+                disabledReason={
+                  canAnalyze
+                    ? undefined
+                    : 'SoftView needs the media duration before it can analyze — try re-selecting the file.'
+                }
+              />
+            </>
+          )}
+
+          {state.status === 'done' && (
+            <ResultsPanel
+              result={state.result}
+              onSeek={seekTo}
+              onStartAssistedViewing={() => setAssisted(true)}
+            />
+          )}
         </>
       )}
-
-      {state.status === 'done' && <ResultsPanel result={state.result} onSeek={seekTo} />}
     </main>
   );
 }

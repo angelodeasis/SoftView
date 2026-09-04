@@ -75,4 +75,26 @@ describe('App', () => {
     renderApp(vi.fn());
     expect(screen.queryByRole('button', { name: /analyze/i })).not.toBeInTheDocument();
   });
+
+  it('starts and exits Assisted Viewing from the results view', async () => {
+    const run = vi.fn((input: MediaAnalysisInput) => Promise.resolve(buildResult(input)));
+    renderApp(run);
+
+    chooseMp3();
+    const analyze = await screen.findByRole('button', { name: /analyze this file/i });
+    await waitFor(() => expect(analyze).toBeEnabled());
+    fireEvent.click(analyze);
+    await screen.findByRole('heading', { name: /potential sensory events/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /start assisted viewing/i }));
+    expect(screen.getByRole('heading', { name: /assisted viewing/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: /potential sensory events/i }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /exit assisted viewing/i }));
+    expect(
+      await screen.findByRole('heading', { name: /potential sensory events/i }),
+    ).toBeInTheDocument();
+  });
 });
