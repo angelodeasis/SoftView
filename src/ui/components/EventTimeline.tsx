@@ -1,3 +1,4 @@
+import type { RefObject } from 'react';
 import { eventKindLabel } from '../../core/events/describe';
 import type { SensoryEvent } from '../../core/events/model';
 import { formatClock } from '../format';
@@ -7,14 +8,21 @@ interface Props {
   events: readonly SensoryEvent[];
   durationSec: number;
   onSeek: (seconds: number) => void;
+  /**
+   * When provided, a live playhead marker renders at `left: 0%` and the caller moves it
+   * imperatively (e.g. from a `requestAnimationFrame` loop) by setting `style.left` —
+   * used in Assisted Viewing so the same coloured overview keeps tracking playback,
+   * rather than only being a static preview.
+   */
+  playheadRef?: RefObject<HTMLDivElement | null>;
 }
 
 /**
- * A static overview bar — one marker per event, positioned by time, coloured by
- * severity. Purely visual: `aria-hidden`, markers are mouse-clickable but not focusable.
- * The {@link EventList} is the accessible path.
+ * An overview bar — one marker per event, positioned by time, coloured by severity.
+ * Purely visual: `aria-hidden`, markers are mouse-clickable but not focusable. The
+ * {@link EventList} is the accessible path.
  */
-export function EventTimeline({ events, durationSec, onSeek }: Props) {
+export function EventTimeline({ events, durationSec, onSeek, playheadRef }: Props) {
   if (!(durationSec > 0)) return null;
 
   return (
@@ -34,6 +42,9 @@ export function EventTimeline({ events, durationSec, onSeek }: Props) {
           />
         );
       })}
+      {playheadRef && (
+        <div ref={playheadRef} className="timeline__playhead" style={{ left: '0%' }} />
+      )}
     </div>
   );
 }

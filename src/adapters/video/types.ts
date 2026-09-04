@@ -20,6 +20,11 @@ export interface VideoTrackOptions {
   readonly refineFps?: number;
   /** Extra timestamps to re-scan in detail (e.g. audio-event times). */
   readonly refineAroundSec?: readonly number[];
+  /**
+   * Videos at or under this duration skip the coarse pass entirely and get a single
+   * dense re-scan of the whole file. Default `20` s.
+   */
+  readonly fullScanMaxDurationSec?: number;
 }
 
 export interface VideoTrackAnalysis {

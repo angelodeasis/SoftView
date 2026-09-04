@@ -179,4 +179,112 @@ describe('runVideoAnalysisPipeline', () => {
     );
     expect(refineScan).toHaveBeenCalledTimes(1);
   });
+
+  describe('short videos (at or under fullScanMaxDurationSec)', () => {
+    const SHORT_DURATION = 6;
+
+    it('skips the coarse pass and dense-scans the whole file directly', async () => {
+      const coarseScan = vi.fn(() => Promise.resolve(seriesFor([], SHORT_DURATION)));
+      const refineScan = vi.fn((from: number, to: number) =>
+        Promise.resolve(seriesFor([flash(from, to)], SHORT_DURATION)),
+      );
+      const { events, run } = await runVideoAnalysisPipeline(
+        deps({ durationSec: SHORT_DURATION, coarseScan, refineScan }),
+        {},
+        {},
+      );
+
+      expect(coarseScan).not.toHaveBeenCalled();
+      expect(refineScan).toHaveBeenCalledExactlyOnceWith(0, SHORT_DURATION, expect.anything());
+      expect(run.status).toBe('ok');
+      expect(events.some((e) => e.kind === 'flashing')).toBe(true);
+    });
+
+    it('catches a flash a coarse-only pass could plausibly miss', async () => {
+      // A single brief flash — nothing flags it up front the way a coarse-triggered
+      // window would, only the whole-file dense scan sees it.
+      const { events, run } = await runVideoAnalysisPipeline(
+        deps({
+          durationSec: SHORT_DURATION,
+          coarseScan: vi.fn(),
+          refineScan: () => Promise.resolve(seriesFor([flash(3, 3.3)], SHORT_DURATION)),
+        }),
+        {},
+        {},
+      );
+      expect(run.status).toBe('ok');
+      expect(events.some((e) => e.kind === 'flashing' && e.startTime < 4)).toBe(true);
+    });
+
+    it('reports progress 0..1 straight from the dense scan', async () => {
+      const seen: number[] = [];
+      await runVideoAnalysisPipeline(
+        deps({
+          durationSec: SHORT_DURATION,
+          refineScan: (_from, _to, ctx) => {
+            ctx.onProgress?.(0.5);
+            ctx.onProgress?.(1);
+            return Promise.resolve(seriesFor([], SHORT_DURATION));
+          },
+        }),
+        {},
+        { onProgress: (f) => seen.push(f) },
+      );
+      expect(seen).toEqual([0.5, 1, 1]);
+    });
+
+    it('fails the run when the dense scan throws', async () => {
+      const { events, run } = await runVideoAnalysisPipeline(
+        deps({
+          durationSec: SHORT_DURATION,
+          refineScan: () => Promise.reject(new Error('seek failed')),
+        }),
+        {},
+        {},
+      );
+      expect(run.status).toBe('failed');
+      expect(events).toEqual([]);
+    });
+
+    it('returns a skipped run when aborted mid-scan', async () => {
+      const controller = new AbortController();
+      const { run } = await runVideoAnalysisPipeline(
+        deps({
+          durationSec: SHORT_DURATION,
+          refineScan: (from: number, to: number) => {
+            controller.abort();
+            return Promise.resolve(seriesFor([flash(from, to)], SHORT_DURATION));
+          },
+        }),
+        {},
+        { signal: controller.signal },
+      );
+      expect(run.status).toBe('skipped');
+    });
+
+    it('reports the sample count from the dense scan alone', async () => {
+      const { run } = await runVideoAnalysisPipeline(
+        deps({
+          durationSec: SHORT_DURATION,
+          refineScan: () =>
+            Promise.resolve(
+              makeTimeSeries(Float64Array.from([0, 1, 2, 3]), Float32Array.from([0, 0, 0, 0])),
+            ),
+        }),
+        {},
+        {},
+      );
+      expect(run.sampleCount).toBe(4);
+    });
+
+    it('a caller-lowered threshold still takes the long-video coarse+refine path', async () => {
+      const coarseScan = vi.fn(() => Promise.resolve(seriesFor([], SHORT_DURATION)));
+      await runVideoAnalysisPipeline(
+        deps({ durationSec: SHORT_DURATION, coarseScan }),
+        { fullScanMaxDurationSec: 1 },
+        {},
+      );
+      expect(coarseScan).toHaveBeenCalledOnce();
+    });
+  });
 });

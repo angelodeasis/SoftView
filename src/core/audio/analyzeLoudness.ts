@@ -43,7 +43,11 @@ export interface AnalyzeLoudnessOptions {
 }
 
 export const DEFAULT_LOUDNESS_PARAMS: Required<AnalyzeLoudnessOptions> = {
-  spikeRiseDb: 10,
+  // Lowered from 10 after a real jump-scare clip's scream measured only a ~6 dB rise
+  // over its own pre-scream baseline (a tense hush, not silence) despite being loud in
+  // absolute terms — spikeFloorDb is what keeps this from flagging ordinary quiet-to-
+  // moderate transitions.
+  spikeRiseDb: 5,
   spikeBaselineSec: 1,
   spikeAttackSec: 0.3,
   spikeFloorDb: -20,
@@ -85,9 +89,20 @@ function spikeEvents(rms: TimeSeries, p: Required<AnalyzeLoudnessOptions>): RawE
       startTime: Math.max(0, times[groupStart] - 0.05),
       endTime: times[groupEnd] + 0.1,
       peakTime,
+      // Driven almost entirely by *how loud it actually is* (peakDb), not how much it
+      // rose: `riseDb`'s job is detection — separating a spike from steady background
+      // level, alongside spikeFloorDb — but a loud sound that follows a quieter-but-not-
+      // silent moment (a tense hush, a lull in music) is every bit as startling as one
+      // that rises from true silence, even though its measured rise is much smaller. So
+      // once something clears both detection gates, severity mostly stops caring which
+      // gate it cleared through. The peak arm reaches full credit only 4 dB above
+      // spikeFloorDb (real short-term RMS rarely gets much louder than that without
+      // clipping) — tightened from an initial guess of -11 dBFS once the real browser
+      // decode of a since-tested clip measured a jump-scare scream at -15.74 dBFS, a few
+      // dB quieter than an offline ffmpeg decode of the same file had suggested.
       severityScore: clamp01(
-        0.55 * ramp(riseDb, p.spikeRiseDb, p.spikeRiseDb + 24) +
-          0.45 * ramp(peakDb, p.spikeFloorDb, -2),
+        0.15 * ramp(riseDb, p.spikeRiseDb, p.spikeRiseDb + 24) +
+          0.85 * ramp(peakDb, p.spikeFloorDb, p.spikeFloorDb + 4),
       ),
       confidence: clamp01(0.4 + 0.4 * ramp(riseDb, p.spikeRiseDb, p.spikeRiseDb + 15)),
       metrics: { riseDb, peakDb, baselineDb: groupBaseline },

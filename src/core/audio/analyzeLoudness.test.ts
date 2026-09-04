@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeEvents } from '../events/normalize';
-import { genAudioPcm, type PcmEventSpec } from '../testing/generators';
+import { genAudioPcm, genLoudnessSeries, type PcmEventSpec } from '../testing/generators';
 import { scoreDetections } from '../testing/groundTruth';
 import { makeTimeSeries, type TimeSeries } from '../signal/timeSeries';
 import { computeLoudness } from './loudness';
@@ -83,6 +83,51 @@ describe('analyzeLoudness', () => {
       10,
     );
     expect(normalized.filter((e) => e.kind === 'loudness-spike')).toHaveLength(0);
+  });
+
+  it('flags a loud moment that only rises a few dB over a tense-hush baseline', () => {
+    // Regression: a real jump-scare clip's scream measured just ~6.5 dB over its own
+    // pre-scream baseline (quieter build-up, not silence) despite being loud in
+    // absolute terms (well above spikeFloorDb) — missed entirely at the old 10 dB
+    // spikeRiseDb default. Numbers (riseDb 6.47 / peakDb −15.74 / baselineDb −22.21) are
+    // the real browser-measured values, read back from the app's own event-details UI —
+    // an earlier offline ffmpeg-decode estimate of the same clip was a few dB off.
+    const { series } = genLoudnessSeries({
+      durationSec: 8,
+      baselineDb: -22.21,
+      events: [{ kind: 'loudness-spike', atSec: 5, durSec: 0.3, peakDb: -15.74 }],
+    });
+    const spikes = analyzeLoudness({ rms: series }).filter((e) => e.kind === 'loudness-spike');
+    expect(spikes).toHaveLength(1);
+    expect(spikes[0].startTime).toBeLessThan(5.3);
+    expect(spikes[0].endTime).toBeGreaterThan(5);
+  });
+
+  it('lands two equally loud spikes in the same severity bucket, regardless of rise', () => {
+    // Same clip: the user reported too little audio ducking on the scream even once it
+    // was detected — its severityScore (driven mostly by the small rise) landed as
+    // 'low', then 'moderate' after a first pass, despite peaking about as loud as the
+    // clip's other, clearly 'high' rise-from-silence spike. Confirmed with the user that
+    // both should land as 'high': severityScore is now driven almost entirely by
+    // absolute peak loudness, since riseDb's job is detection (alongside spikeFloorDb),
+    // not ranking how loud something turned out to be once it's already been flagged.
+    // peakDb here is the real browser-measured value for the scream (see the test above).
+    const quietRiseFromHush = genLoudnessSeries({
+      durationSec: 8,
+      baselineDb: -22.21,
+      events: [{ kind: 'loudness-spike', atSec: 5, durSec: 0.3, peakDb: -15.74 }],
+    }).series;
+    const loudRiseFromSilence = genLoudnessSeries({
+      durationSec: 8,
+      baselineDb: -50,
+      events: [{ kind: 'loudness-spike', atSec: 5, durSec: 0.3, peakDb: -15.74 }],
+    }).series;
+
+    const [modestRise] = analyzeLoudness({ rms: quietRiseFromHush });
+    const [bigRise] = analyzeLoudness({ rms: loudRiseFromSilence });
+
+    expect(modestRise.severityScore).toBeGreaterThanOrEqual(0.66); // both clearly 'high'
+    expect(bigRise.severityScore).toBeGreaterThanOrEqual(0.66);
   });
 
   it('works from a pre-computed series and skips clipping when no peak is given', () => {

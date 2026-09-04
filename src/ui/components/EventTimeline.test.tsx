@@ -1,3 +1,4 @@
+import { createRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render } from '@testing-library/react';
 import type { SensoryEvent } from '../../core/events/model';
@@ -44,5 +45,26 @@ describe('EventTimeline', () => {
       <EventTimeline events={[event('a', 1, 2)]} durationSec={0} onSeek={vi.fn()} />,
     );
     expect(container.querySelector('.timeline')).toBeNull();
+  });
+
+  it('renders a live playhead only when a ref is passed, attached to the given element', () => {
+    const without = render(
+      <EventTimeline events={[event('a', 0, 10)]} durationSec={100} onSeek={vi.fn()} />,
+    );
+    expect(without.container.querySelector('.timeline__playhead')).toBeNull();
+    without.unmount();
+
+    const playheadRef = createRef<HTMLDivElement>();
+    const { container } = render(
+      <EventTimeline
+        events={[event('a', 0, 10)]}
+        durationSec={100}
+        onSeek={vi.fn()}
+        playheadRef={playheadRef}
+      />,
+    );
+    const playhead = container.querySelector('.timeline__playhead');
+    expect(playhead).not.toBeNull();
+    expect(playheadRef.current).toBe(playhead);
   });
 });

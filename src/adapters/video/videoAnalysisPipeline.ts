@@ -3,6 +3,13 @@
  * `analyzeVisualFlash` (over-flag) → refine each flagged / caller-supplied window with a
  * dense re-scan → refined events + an `AnalyzerRun`.
  *
+ * Short videos (`fullScanMaxDurationSec`, default 20s) skip the coarse pass and get one
+ * dense re-scan of the whole file instead. The coarse pass trades sample density for
+ * speed (background playback at ~2×, sampling whatever frames the browser actually
+ * composites) — a reasonable trade on a long file, but on a short one a brief flash can
+ * fall entirely between coarse samples with no compensating benefit, since a full dense
+ * scan of a few seconds of video is already fast.
+ *
  * The two browser scans are injected, so this whole flow is unit-tested with fakes.
  * `frameSampler.ts` provides the real `<video>` + canvas scans.
  */
@@ -36,6 +43,7 @@ export const COARSE_SCAN_FAILED_NOTE = 'SoftView could not scan the video in thi
 export const STOPPED_NOTE = 'Video analysis was stopped before it finished.';
 
 const COARSE_FRACTION = 0.7;
+const DEFAULT_FULL_SCAN_MAX_DURATION_SEC = 20;
 
 function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === 'AbortError';
@@ -54,6 +62,7 @@ function runParams(opts: VideoTrackOptions): AnalyzerRun['params'] {
     downscalePx: opts.downscalePx ?? 64,
     refinePadSec: opts.refinePadSec ?? 2.5,
     refineFps: opts.refineFps ?? 30,
+    fullScanMaxDurationSec: opts.fullScanMaxDurationSec ?? DEFAULT_FULL_SCAN_MAX_DURATION_SEC,
   };
 }
 
@@ -117,6 +126,23 @@ export async function runVideoAnalysisPipeline(
     );
 
   if (aborted()) return finish('skipped', 0, [], [], STOPPED_NOTE);
+
+  const fullScanMaxDurationSec = opts.fullScanMaxDurationSec ?? DEFAULT_FULL_SCAN_MAX_DURATION_SEC;
+  if (deps.durationSec <= fullScanMaxDurationSec) {
+    try {
+      const dense = await deps.refineScan(0, deps.durationSec, {
+        onProgress: (f) => progress.onProgress?.(f),
+        signal,
+      });
+      if (aborted()) return finish('skipped', dense.times.length, [], [], STOPPED_NOTE);
+      const events = analyzeVisualFlash({ luminance: dense }, opts.flash);
+      progress.onProgress?.(1);
+      return finish('ok', dense.times.length, events, []);
+    } catch (err) {
+      if (isAbortError(err) || aborted()) return finish('skipped', 0, [], [], STOPPED_NOTE);
+      return coarseScanFailureAnalysis(opts, deps.now() - startedMs);
+    }
+  }
 
   let coarse: TimeSeries;
   try {

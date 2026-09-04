@@ -52,7 +52,7 @@ describe('runAudioAnalysisPipeline', () => {
   it('records the analyzer params, including the analysis sample rate', () => {
     const { run } = runAudioAnalysisPipeline(decodedFrom([], 16000), {}, clock());
     expect(run.params.sampleRate).toBe(16000);
-    expect(run.params.spikeRiseDb).toBe(10);
+    expect(run.params.spikeRiseDb).toBe(5);
     expect(run.params.sustainedDb).toBe(-14);
   });
 

@@ -548,19 +548,226 @@ behavior, a final accessibility pass. No new deps, no config changes.
   (71.7 kB gzip), CSS 5.2 → 5.7 kB, 71 modules (was 69); the audio worker chunk is
   unchanged (4.5 kB).
 
+### Post-Phase-9 UI polish (2026-09-04)
+
+After the real-browser pass the user confirmed Phase 9 works and asked for two small,
+mainly-UI follow-ups. **#1 — live timeline in Assisted Viewing:** the same coloured
+severity-overview bar shown on the results/review screen (`EventTimeline`) is now also
+rendered in `AssistedViewing`, with a live playhead that tracks `currentTime` so the
+viewer can see what's coming up while actually watching.
+
+- `EventTimeline` gained an optional `playheadRef?: RefObject<HTMLDivElement | null>` —
+  when passed, it renders a `.timeline__playhead` div the caller moves imperatively.
+- `useAssistedPlayback` gained an optional third `playhead?: PlayheadTarget` arg
+  (`{ ref, durationSec }`) — driven from the **same** `requestAnimationFrame` loop that
+  already updates volume/filter, not a second loop; stored in a ref so the main effect's
+  `[ref]` dependency array is untouched.
+- `AssistedViewing` wires a `playheadRef`, passes it to both the hook and
+  `EventTimeline`, and reuses `EventTimeline`'s existing `onSeek` for click-to-seek on
+  the assisted player itself.
+- New CSS: `.timeline__playhead` (thin vertical bar, `pointer-events: none`).
+- Tests: `EventTimeline.test.tsx` (+1 — playhead only renders when a ref is passed, and
+  attaches to the right element), `AssistedViewing.test.tsx` (+2 — the timeline/playhead
+  render with events, and clicking a marker seeks the assisted player).
+- Verified: **219/219** tests pass, typecheck/lint/format clean, build succeeds (main
+  bundle 224.85 → 225.34 kB / 71.91 kB gzip, CSS 5.7 → 5.81 kB, module count unchanged).
+  Not yet reviewed in the real browser by the user.
+
+**#2 — a visual redesign** ("sleek modern look... not overdone"). CSS-only pass over
+`src/index.css`: design tokens (surface/border/radius/shadow colours, light + dark),
+card treatment for every top-level section, a unified button system (filled primary vs.
+outline secondary, hover/active/focus-visible states), a refined dropzone (including a
+styled native `::file-selector-button`), filled severity chips instead of outlined text,
+a rounded/hover-able timeline with an accent-coloured playhead, and soft tinted banners
+(disclaimer/error/advisory/limitations/crash) replacing the old left-accent-bar look.
+No markup or class-name changes, so no test was touched. Verified: 219/219 tests,
+typecheck/lint/format clean, build OK (CSS 5.81 → 8.97 kB / gzip 2.33 kB, JS unchanged).
+Not yet reviewed in the real browser by the user.
+
+### Bug found + fixed: short clips could miss a fast visual event entirely
+
+The user tested a real 6 s FNAF jumpscare clip (in `~/Downloads/`, not a repo fixture) —
+Assisted Viewing didn't flag the jumpscare at all. Diagnosed by extracting the file's
+real luminance and 16 kHz-mono loudness curves with ffmpeg and feeding them straight into
+the pure `src/core` analyzers (`analyzeVisualFlash`, `analyzeLoudness`) via a throwaway
+Vitest file (deleted after, never committed) — no browser needed since core is pure.
+
+Findings:
+
+- The jumpscare's brightness spike is enormous (~0.25 → ~0.92 relative luminance, ~4× the
+  `spikeDeltaRel` threshold) and `analyzeVisualFlash` catches it easily — at 60 fps, at a
+  simulated 30 fps (the real `refineFps` default), and even at a crudely decimated ~15
+  fps. So the detector itself was never the problem.
+- The audio has one loud onset near t≈0.3 s (correctly flagged as `loudness-spike` +
+  `clipping`) that continues, without a fresh silence-to-loud rise, straight through the
+  visual jumpscare at t≈3.2 s — so no second audio event exists there to seed a video
+  refine window via `refineAroundSec`.
+- That leaves the video coarse pass (background playback at ~2×, sampling whatever frames
+  `requestVideoFrameCallback` actually delivers) as the only path that could have caught
+  it — and on a short, few-second clip, a ~150 ms flash can plausibly fall entirely
+  between coarse samples with nothing to compensate, unlike on a long file where the
+  coarse pass's job is explicitly to over-flag _candidates_ for a guaranteed-dense refine.
+
+**Fix:** `runVideoAnalysisPipeline` (`src/adapters/video/videoAnalysisPipeline.ts`) now
+skips the coarse pass entirely for videos at or under a new `fullScanMaxDurationSec`
+(default 20 s) and dense-scans the whole file directly at `refineFps` instead — the
+coarse pass is a speed trade-off that only pays for itself on longer files; on a short
+clip a full dense scan is already fast and removes the frame-drop blind spot completely.
+New option on `VideoTrackOptions`, threaded into `AnalyzerRun.params` like the other
+tunables. 6 new tests in `videoAnalysisPipeline.test.ts` (skips coarse and calls
+`refineScan(0, duration, …)` directly; catches a flash a coarse-only pass could
+plausibly miss; progress/sample-count/failure/abort behavior on this path; a
+caller-lowered threshold still takes the long-video path). All of this project's past
+short (~6 s) test clips (`flash-once-6s.mp4`, the beep mp3) were relying on the coarse
+path incidentally working — this closes that gap for all of them, not just this file.
+Verified: **226/226** tests, typecheck/lint/format clean, build OK (JS 225.34 → 225.83
+kB). Not yet re-tested against the real jumpscare file in the browser — that real-file
+confirmation is next.
+
+### Bug found + fixed: a scream after a tense hush didn't duck the audio
+
+Follow-up from the same jumpscare clip: the user watched it in Assisted Viewing and
+reported Freddy's scream — which they describe as extremely loud — got no audio
+softening at all, even though the visual fix above (correctly) started dimming the
+screen. Dug into the real 16 kHz-mono loudness curve (same throwaway-Vitest-file method
+as the visual bug, deleted after, never committed):
+
+- The clip's audio isn't one continuous loud passage — there are two genuinely separate
+  loud moments with a real quiet gap between them: an intro cue (0.4–0.8 s, correctly
+  flagged) and, after ~1.5 s of quieter "tense hush" (≈ −19 dBFS, not silence), the
+  scream itself (≈ 2.3–3.2 s, peaking around −13 dBFS — objectively about as loud as the
+  intro, not louder).
+- `loudness-spike` requires a rise of `spikeRiseDb` (10 dB, old default) over the
+  trailing-1s baseline. Measured precisely: the scream's baseline (the hush) sits around
+  −19 dBFS, its peak around −13 dBFS — a real rise of only **~6.3 dB**. Under the 10 dB
+  bar, that's mathematically invisible to the detector, despite easily clearing
+  `spikeFloorDb` (it's genuinely loud, just not loud _relative to what came right before
+  it_). `sustained-loudness` doesn't help either — its own 4 s minimum doesn't fit either
+  of the two ~1 s loud moments, together or apart.
+
+**Fix:** lowered `spikeRiseDb` from 10 → 5 (`DEFAULT_LOUDNESS_PARAMS`,
+`src/core/audio/analyzeLoudness.ts`) — `spikeFloorDb` (−20 dBFS) is what keeps this from
+flagging ordinary quiet-to-moderate transitions, so this mainly widens what counts as a
+"sudden" rise, consistent with the codebase's stated over-flag-rather-than-miss
+philosophy. Verified against the real clip: now produces a second `loudness-spike` at
+≈2.3–2.6 s (peak 2.65 s), whose mitigation window (event span + the 0.5 s fade either
+side) reaches to ≈3.25 s — covering the visual jumpscare moment at 3.2 s. New regression
+test in `analyzeLoudness.test.ts` (a loud moment ~6 dB over a non-silent baseline, using
+`genLoudnessSeries` directly) plus the one existing test that hardcoded the old default
+(`audioAnalysisPipeline.test.ts`) updated. Verified: **227/227** tests, typecheck/lint/
+format clean, build OK. Not yet re-tested against the real file in the browser.
+
 ### Next session should start with
 
-**The real-browser pass for Phase 9** (dev server is up) — trigger a crash to confirm the
-boundary + Back to start recovers cleanly; confirm focus lands correctly across the four
-review/Assisted-Viewing transitions; confirm a broken file shows the new `MediaPlayer`
-fallback. Then review + commit Phase 9, and close the standing Phase 4–7 gaps (Stop
-mid-run, a full Firefox pass) before considering this shippable.
+The real-browser pass, covering everything currently uncommitted:
+
+- Phase 9: trigger a crash to confirm the boundary + Back to start recovers cleanly;
+  confirm focus lands correctly across the four review/Assisted-Viewing transitions;
+  confirm a broken file shows the new `MediaPlayer` fallback.
+- The Assisted Viewing timeline/playhead: visually confirm the playhead tracks playback
+  smoothly and markers still seek correctly.
+- The visual redesign: a general look-over (light and dark), user sign-off on "sleek
+  modern, not overdone."
+- **Re-test the real jumpscare clip** (`~/Downloads/FREDDY JUMPSCARE - IULITMx (720p,
+h264).mp4` — not a repo fixture) now that short videos get a full dense scan and
+  `spikeRiseDb` is lower; confirm both the screen dims and the audio ducks around
+  Freddy's scream. Worth also re-running the existing `flash-once-6s.mp4` / beep-mp3
+  fixtures to confirm they still behave now that they take the new short-video code path
+  instead of the old coarse+refine one.
+
+Then review + commit everything, and close the standing Phase 4–7 gaps (Stop mid-run, a
+full Firefox pass) before considering this shippable.
+
+### Tuning: the scream was detected but barely ducked
+
+The user re-tested after the `spikeRiseDb` fix: detection now fires, but the ducking felt
+too light specifically on the scream. Root cause was in `severityScore`, not detection —
+`mitigationAt`'s duck depth is picked by severity _bucket_ (`DEFAULT_AUDIO_TARGETS`:
+low 0.3 / moderate 0.15 / high 0.05), and the old formula weighted 55% toward _how much
+the sound rose_ vs. 45% toward _how loud it actually is_. The scream's rise (~~6.5 dB,
+just over the new 5 dB bar) scored that arm near zero, landing the whole event at
+severityScore ≈0.22 — `'low'`, only a 30%-volume duck — even though its peak (~~‑12.7
+dBFS) is essentially identical to the intro cue's, which scores `'high'` (0.73) because
+_that_ one rises from true silence.
+
+**Fix:** rebalanced the weighting to 30% rise / 70% peak loudness, and moved the peak
+arm's "full credit" reference from −2 dBFS (near-clipping) to −7 dBFS (already clearly
+loud — few natural sounds approach clipping without distorting). Verified against the
+real clip: the scream now scores ≈0.41 (`'moderate'`, 15%-volume duck — meaningfully
+stronger), while the intro cue stays solidly `'high'` (≈0.69). New test
+(`analyzeLoudness.test.ts`) asserts both: a loud-but-modest-rise event lands at least
+`'moderate'`, a loud rise-from-silence event stays `'high'`. Verified: **228/228** tests,
+typecheck/lint/format clean, build OK. Not yet re-tested against the real file in the
+browser.
+
+### Git state
+
+Still not quite enough dimming per the user's follow-up ("dim it a bit more") — rather
+than push the severity weighting further (which would also touch every other
+`'moderate'`-severity event, not just this one), deepened
+`DEFAULT_AUDIO_TARGETS.moderate` itself from `0.15` to `0.1`
+(`src/core/assistedViewing/envelope.ts`) — the same lever used for the two earlier
+audio-ducking tuning rounds in Phase 8. `low` (0.3) and `high` (0.05) unchanged. No test
+hardcodes the numeric value (`envelope.test.ts` references
+`DEFAULT_AUDIO_TARGETS.moderate` symbolically), so nothing needed updating. Verified:
+**228/228** tests, typecheck/lint/format clean, build OK. Not yet re-heard in the
+browser — worth confirming this is enough before moving on.
+
+User said "further" right after — pushed `DEFAULT_AUDIO_TARGETS.moderate` again, `0.1 →
+0.06`, now sitting right next to `high` (`0.05`) rather than roughly halfway between
+`low` and `high`.
+
+**Then reconsidered, prompted by the user asking whether classifying the scream as
+`'high'` outright would be "consistent across all":** yes — `severityScore` is a pure
+function with no per-file special-casing, so tuning it (rather than a target constant)
+reclassifies every event with this loud-but-modest-rise profile the same way everywhere,
+not just this one clip. That's the more correct fix, so:
+
+- `severityScore`'s weighting moved again, `0.3`/`0.7` (rise/peak) → **`0.15`/`0.85`**,
+  and the peak arm's "full credit" reference tightened `-7` → `-11` dBFS. Rationale:
+  `riseDb`'s job is detection (alongside `spikeFloorDb`) — separating a spike from
+  steady background level — not ranking how severe something is once it's already been
+  flagged as one; severity should track how loud it actually is almost exclusively.
+  Verified against the real clip: both the scream (0.70) and the intro cue (0.84) now
+  land solidly in `'high'`, not one `'moderate'` and one `'high'`.
+- `DEFAULT_AUDIO_TARGETS.moderate` reverted `0.06 → 0.15` (its Phase-8-tuned value) —
+  the earlier squeeze was patching a misclassification, not a real "moderate needs to be
+  deeper" need. `low` (0.3) and `high` (0.05) untouched throughout this whole chase.
+- Rewrote the regression test to assert the corrected invariant: a loud-but-modest-rise
+  spike and a loud rise-from-silence spike both land at or above the `'high'` cutoff
+  (0.66), not one clamped to "at least moderate."
+
+Verified: **228/228** tests, typecheck/lint/format clean, build OK.
+
+**Then the user reported the ducking finally felt right, but the results panel still
+didn't classify the event as `'high'`.** The `-11 dBFS` peak-arm reference above was
+calibrated against an ffmpeg-decoded estimate of the clip's peak (~-12.7 dBFS) — margin
+over the 0.66 cutoff was only ~0.04, thin enough that any real browser-vs-ffmpeg decode
+difference could flip it back to `'moderate'`. Asked the user to read the actual numbers
+from the event's own "Details" disclosure in the UI (exactly what it's there for) instead
+of guessing again: **riseDb 6.47 / peakDb −15.74 / baselineDb −22.21** — a few dB quieter
+across the board than the ffmpeg estimate had suggested.
+
+**Fix:** the peak arm's "full credit" reference is now `spikeFloorDb + 4` (dynamic,
+`-16` dBFS at the default `-20` floor) instead of a hardcoded `-11` — both more robust
+(real short-term RMS rarely gets much louder than 4 dB above a "loud enough to flag"
+floor without clipping) and scales correctly if `spikeFloorDb` is ever overridden.
+Against the real numbers: scores ≈0.86, comfortable margin over 0.66. Updated both
+regression tests in `analyzeLoudness.test.ts` to use these real measured values instead
+of the earlier ffmpeg-estimated ones. Verified: **228/228** tests, typecheck/lint/format
+clean, build OK. This should be the last round of this particular chase — the fix is
+now grounded in the app's own real decode output, not an offline approximation of it.
 
 ### Git state
 
 `main` @ `2c6296b`, in sync with `origin/main`. Phases 0–8 (all bugfixes and tuning
-rounds included) committed and pushed. Working tree = Phase 9
-(`src/ui/components/{ErrorBoundary,CrashNotice}.tsx` + tests, plus edits to
-`MediaPlayer.tsx`, `AnalyzeControls.tsx`, `ResultsPanel.tsx`, `EventList.tsx`,
-`AssistedViewing.tsx`, `App.tsx`, `src/index.css`, `SESSION.md`, all with matching test
-updates), awaiting the user's review and commit; nothing branched or stashed.
+rounds included) committed and pushed. Working tree = Phase 9 + five post-Phase-9
+follow-ups (Assisted Viewing timeline/playhead, a visual redesign, the short-video
+full-scan fix, the `spikeRiseDb` lowering, and the severity-weighting rebalance —
+`envelope.ts`'s `DEFAULT_AUDIO_TARGETS` ended up back at its committed values after the
+detour through `moderate`): `src/ui/components/{ErrorBoundary,CrashNotice}.tsx` + tests,
+plus edits to `MediaPlayer.tsx`, `AnalyzeControls.tsx`, `ResultsPanel.tsx`,
+`EventList.tsx`, `EventTimeline.tsx`, `AssistedViewing.tsx`, `useAssistedPlayback.ts`,
+`App.tsx`, `src/index.css`, `src/adapters/video/{types,videoAnalysisPipeline}.ts`,
+`src/core/audio/analyzeLoudness.ts`, `SESSION.md`, all with matching test updates),
+awaiting the user's review and commit; nothing branched or stashed.
