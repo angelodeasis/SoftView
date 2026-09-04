@@ -4,6 +4,7 @@ import {
   makeTimeSeries,
   maxInRange,
   meanInRange,
+  minInRange,
   sampleCount,
   sliceByTime,
   spanSeconds,
@@ -77,17 +78,19 @@ describe('valueAtOrBefore', () => {
   });
 });
 
-describe('meanInRange / maxInRange', () => {
+describe('meanInRange / maxInRange / minInRange', () => {
   const ts = series([0, 1, 2, 3, 4], [10, 20, 30, 40, 50]);
 
   it('reduce the values whose time falls in the inclusive window', () => {
     expect(meanInRange(ts, 1, 3)).toBe(30);
     expect(maxInRange(ts, 1, 3)).toBe(40);
+    expect(minInRange(ts, 1, 3)).toBe(20);
   });
 
   it('cover the whole series when the window is wide', () => {
     expect(meanInRange(ts, -100, 100)).toBe(30);
     expect(maxInRange(ts, -100, 100)).toBe(50);
+    expect(minInRange(ts, -100, 100)).toBe(10);
   });
 
   it('handle a single-sample window', () => {
@@ -97,6 +100,7 @@ describe('meanInRange / maxInRange', () => {
   it('are undefined when no sample falls in the window', () => {
     expect(meanInRange(ts, 1.1, 1.9)).toBeUndefined();
     expect(maxInRange(ts, 10, 20)).toBeUndefined();
+    expect(minInRange(ts, 10, 20)).toBeUndefined();
     expect(meanInRange(EMPTY_SERIES, 0, 1)).toBeUndefined();
   });
 });

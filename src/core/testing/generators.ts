@@ -154,6 +154,12 @@ export type BrightnessEventSpec =
       readonly durSec: number;
       readonly from: number;
       readonly to: number;
+    }
+  | {
+      readonly kind: 'scene-change';
+      readonly atSec: number;
+      readonly from: number;
+      readonly to: number;
     };
 
 export interface BrightnessSeriesOptions {
@@ -173,9 +179,9 @@ function clamp01(n: number): number {
 }
 
 function brightnessSpan(e: BrightnessEventSpec): { start: number; end: number } {
-  return e.kind === 'flashing'
-    ? { start: e.fromSec, end: e.toSec }
-    : { start: e.atSec, end: e.atSec + e.durSec };
+  if (e.kind === 'flashing') return { start: e.fromSec, end: e.toSec };
+  if (e.kind === 'scene-change') return { start: e.atSec, end: e.atSec + 0.2 };
+  return { start: e.atSec, end: e.atSec + e.durSec };
 }
 
 export function genBrightnessSeries(options: BrightnessSeriesOptions): GeneratedSeries {
@@ -195,6 +201,15 @@ export function genBrightnessSeries(options: BrightnessSeriesOptions): Generated
         if (t >= e.fromSec && t < e.toSec) {
           const halfPeriods = Math.floor((t - e.fromSec) * e.hz * 2);
           v = halfPeriods % 2 === 0 ? e.high : e.low;
+        }
+      } else if (e.kind === 'scene-change') {
+        // A step at `atSec` that holds afterwards, with a brief lead-in at `from` so the
+        // detector sees a clean before/after without clobbering the whole timeline.
+        const ramp = 0.05;
+        if (t >= e.atSec) {
+          v = t < e.atSec + ramp ? e.from + (e.to - e.from) * ((t - e.atSec) / ramp) : e.to;
+        } else if (t >= e.atSec - 1) {
+          v = e.from;
         }
       } else if (t >= e.atSec && t <= e.atSec + e.durSec) {
         v = ramped(t, e.atSec, e.atSec + e.durSec, e.to, e.from, Math.min(0.2, e.durSec / 2));

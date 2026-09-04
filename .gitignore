@@ -10,3 +10,6 @@ node_modules/.tmp
 spikes/**/*.mp3
 spikes/**/*.mp4
 spikes/**/*.m4a
+
+# hand-made fixtures for manual browser testing
+test-media/

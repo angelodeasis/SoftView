@@ -1,0 +1,12 @@
+{
+  // Web Worker entry points. They run in a worker global scope, not the DOM — this
+  // config swaps the "DOM" lib for "WebWorker" so a stray `document` reference fails to
+  // type-check, the same way tsconfig.core.json guards the analysis engines.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "WebWorker"],
+    "types": []
+  },
+  "include": ["src/**/*.worker.ts"],
+  "exclude": []
+}

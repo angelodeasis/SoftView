@@ -75,6 +75,31 @@ export default tseslint.config(
     },
   },
 
+  // Web Worker entry points run in a worker global scope, not the DOM.
+  {
+    files: ['src/**/*.worker.ts'],
+    languageOptions: { globals: globals.worker },
+  },
+
+  // Adapters are browser glue between the app and the pure core. They may depend on
+  // core, but not on the UI or app state.
+  {
+    files: ['src/adapters/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/ui/**', '**/state/**', '**/runtime/**'],
+              message: 'src/adapters must not import from ui/, state/, or runtime/.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // Test + tooling files.
   {
     files: ['src/**/*.test.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],

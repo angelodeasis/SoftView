@@ -21,5 +21,7 @@
 
     "skipLibCheck": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Worker entry points are type-checked by tsconfig.worker.json (WebWorker lib, no DOM).
+  "exclude": ["src/**/*.worker.ts"]
 }

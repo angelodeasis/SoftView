@@ -122,3 +122,13 @@ export function maxInRange(ts: TimeSeries, fromSec: number, toSec: number): numb
   }
   return max === -Infinity ? undefined : max;
 }
+
+/** Smallest value whose time is in `[fromSec, toSec]`; `undefined` if none. */
+export function minInRange(ts: TimeSeries, fromSec: number, toSec: number): number | undefined {
+  const lo = lowerBound(ts.times, fromSec);
+  let min = Infinity;
+  for (let i = lo; i < ts.times.length && ts.times[i] <= toSec; i++) {
+    if (ts.values[i] < min) min = ts.values[i];
+  }
+  return min === Infinity ? undefined : min;
+}

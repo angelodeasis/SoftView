@@ -77,6 +77,20 @@ describe('genBrightnessSeries', () => {
     });
     expect(Math.max(...Array.from(series.values))).toBeLessThanOrEqual(1);
   });
+
+  it('shifts to a new level and holds it for a scene-change', () => {
+    const { series, groundTruth } = genBrightnessSeries({
+      durationSec: 10,
+      baseline: 0.3,
+      events: [{ kind: 'scene-change', atSec: 4, from: 0.3, to: 0.8 }],
+    });
+    expect(valueAtOrBefore(series, 2)).toBeCloseTo(0.3, 5);
+    expect(valueAtOrBefore(series, 5)).toBeCloseTo(0.8, 5);
+    expect(valueAtOrBefore(series, 9)).toBeCloseTo(0.8, 5);
+    expect(groundTruth).toEqual([
+      { channel: 'visual', kind: 'scene-change', startTime: 4, endTime: 4.2 },
+    ]);
+  });
 });
 
 describe('genAudioPcm', () => {
