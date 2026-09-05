@@ -88,4 +88,35 @@ describe('AnalyzeControls', () => {
     render(<Harness run={() => new Promise(() => {})} />);
     expect(document.querySelector('.advisory')).toBeNull();
   });
+
+  it('hints to keep the tab visible for video, not audio', () => {
+    const { rerender } = render(
+      <AnalysisProvider run={() => new Promise(() => {})}>
+        <AnalyzeControls onAnalyze={vi.fn()} kind="video" />
+      </AnalysisProvider>,
+    );
+    expect(screen.getByText(/keep this tab open and visible/i)).toBeInTheDocument();
+
+    rerender(
+      <AnalysisProvider run={() => new Promise(() => {})}>
+        <AnalyzeControls onAnalyze={vi.fn()} kind="audio" />
+      </AnalysisProvider>,
+    );
+    expect(screen.queryByText(/keep this tab open and visible/i)).toBeNull();
+  });
+
+  it('repeats the tab-visibility hint while a video analysis is running', () => {
+    function VideoInner() {
+      const { analyze } = useAnalysis();
+      return <AnalyzeControls onAnalyze={() => analyze(input)} kind="video" />;
+    }
+    render(
+      <AnalysisProvider run={() => new Promise(() => {})}>
+        <VideoInner />
+      </AnalysisProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /analyze this file/i }));
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.getByText(/keep this tab open and visible/i)).toBeInTheDocument();
+  });
 });

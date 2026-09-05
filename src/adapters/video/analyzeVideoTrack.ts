@@ -1,8 +1,10 @@
 /**
  * Main-thread entry point for analysing a file's video track.
  *
- * Loads the file into a detached `<video>`, runs the coarse + refine frame-capture
- * pipeline, and resolves with the events, the `AnalyzerRun`, and any warnings.
+ * Tries WebCodecs first (`webCodecsFrameSampler.ts` — decodes as fast as the hardware
+ * allows, no `<video>`-playback realtime ceiling); falls back to the `<video>`-based
+ * coarse+refine pipeline (`frameSampler.ts`) wherever the browser or this file's codec
+ * doesn't support it. Resolves with the events, the `AnalyzerRun`, and any warnings.
  *
  * A video that cannot be loaded/decoded resolves with `run.status === 'failed'`; an
  * aborted analysis resolves with `run.status === 'skipped'`. The promise rejects only
@@ -12,11 +14,13 @@
 import { createObjectUrl } from '../../media/objectUrl';
 import { createFrameSampler } from './frameSampler';
 import { coarseScanFailureAnalysis, runVideoAnalysisPipeline } from './videoAnalysisPipeline';
+import { createWebCodecsFrameSampler, probeWebCodecs } from './webCodecsFrameSampler';
 import type { VideoPipelineDeps } from './videoAnalysisPipeline';
 import type { VideoAnalysisProgress, VideoTrackAnalysis, VideoTrackOptions } from './types';
 
 export interface AnalyzeVideoTrackDeps {
   readonly buildSampler: (
+    blob: Blob,
     blobUrl: string,
     opts: VideoTrackOptions,
   ) => Promise<{
@@ -24,6 +28,7 @@ export interface AnalyzeVideoTrackDeps {
     coarseScan: VideoPipelineDeps['coarseScan'];
     refineScan: VideoPipelineDeps['refineScan'];
     dispose: () => void;
+    usedWebCodecs: boolean;
   }>;
   readonly now: () => number;
 }
@@ -37,7 +42,17 @@ function loadedMetadata(video: HTMLVideoElement): Promise<void> {
   });
 }
 
-const defaultBuildSampler: AnalyzeVideoTrackDeps['buildSampler'] = async (blobUrl, opts) => {
+const defaultBuildSampler: AnalyzeVideoTrackDeps['buildSampler'] = async (blob, blobUrl, opts) => {
+  const probe = await probeWebCodecs(blob);
+  if (probe.supported) {
+    return {
+      durationSec: probe.durationSec,
+      ...createWebCodecsFrameSampler(blob, opts),
+      dispose: () => {},
+      usedWebCodecs: true,
+    };
+  }
+
   const video = document.createElement('video');
   video.muted = true;
   video.playsInline = true;
@@ -55,6 +70,7 @@ const defaultBuildSampler: AnalyzeVideoTrackDeps['buildSampler'] = async (blobUr
       video.removeAttribute('src');
       video.load();
     },
+    usedWebCodecs: false,
   };
 };
 
@@ -74,10 +90,16 @@ export async function analyzeVideoTrack(
   try {
     let sampler: Awaited<ReturnType<AnalyzeVideoTrackDeps['buildSampler']>>;
     try {
-      sampler = await buildSampler(objectUrl.url, opts);
+      sampler = await buildSampler(blob, objectUrl.url, opts);
     } catch {
       return coarseScanFailureAnalysis(opts, 0);
     }
+    // WebCodecs decodes densely fast enough that there's nothing left to "refine" —
+    // treat every WebCodecs-sampled video like the short-video case (a single dense
+    // scan, no coarse pass) regardless of its actual length.
+    const runOpts: VideoTrackOptions = sampler.usedWebCodecs
+      ? { ...opts, usedWebCodecs: true, fullScanMaxDurationSec: Number.POSITIVE_INFINITY }
+      : opts;
     try {
       return await runVideoAnalysisPipeline(
         {
@@ -86,7 +108,7 @@ export async function analyzeVideoTrack(
           durationSec: sampler.durationSec,
           now,
         },
-        opts,
+        runOpts,
         progress,
       );
     } finally {

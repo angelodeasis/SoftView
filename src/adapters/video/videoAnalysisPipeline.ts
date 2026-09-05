@@ -44,6 +44,7 @@ export const STOPPED_NOTE = 'Video analysis was stopped before it finished.';
 
 const COARSE_FRACTION = 0.7;
 const DEFAULT_FULL_SCAN_MAX_DURATION_SEC = 20;
+const DEFAULT_STALL_TIMEOUT_MS = 10_000;
 
 function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === 'AbortError';
@@ -63,6 +64,8 @@ function runParams(opts: VideoTrackOptions): AnalyzerRun['params'] {
     refinePadSec: opts.refinePadSec ?? 2.5,
     refineFps: opts.refineFps ?? 30,
     fullScanMaxDurationSec: opts.fullScanMaxDurationSec ?? DEFAULT_FULL_SCAN_MAX_DURATION_SEC,
+    stallTimeoutMs: opts.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS,
+    usedWebCodecs: opts.usedWebCodecs ?? false,
   };
 }
 

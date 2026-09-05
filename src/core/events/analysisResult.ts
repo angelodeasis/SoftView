@@ -70,12 +70,17 @@ export function buildAnalysisResult(input: BuildAnalysisResultInput): AnalysisRe
   const status: AnalysisStatus =
     input.runs.length > 0 && input.runs.every((r) => r.status === 'ok') ? 'complete' : 'partial';
 
+  // A run that didn't finish (`failed`/`skipped`) explains itself via `note` — surface
+  // that alongside any warnings the caller collected directly, so "results may be
+  // incomplete" always comes with a reason, not just the generic partial banner.
+  const runNotes = input.runs.flatMap((r) => (r.status !== 'ok' && r.note ? [r.note] : []));
+
   return {
     media: input.media,
     events,
     runs: input.runs,
     status,
     limitations: [...BASE_LIMITATIONS, ...(input.extraLimitations ?? [])],
-    warnings: input.warnings ?? [],
+    warnings: [...(input.warnings ?? []), ...runNotes],
   };
 }

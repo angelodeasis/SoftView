@@ -25,6 +25,18 @@ export interface VideoTrackOptions {
    * dense re-scan of the whole file. Default `20` s.
    */
   readonly fullScanMaxDurationSec?: number;
+  /**
+   * A scan fails if it goes this long with no new frame/seek (a stalled `<video>` —
+   * decode hiccup, background-tab throttling — rather than an error). Default
+   * `10000` ms.
+   */
+  readonly stallTimeoutMs?: number;
+  /**
+   * Set by `analyzeVideoTrack.ts` — whether this run used the WebCodecs sampler
+   * (`webCodecsFrameSampler.ts`) instead of the `<video>`-based one. Purely an audit
+   * trail on `AnalyzerRun.params`; not read by the pipeline itself.
+   */
+  readonly usedWebCodecs?: boolean;
 }
 
 export interface VideoTrackAnalysis {

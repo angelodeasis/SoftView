@@ -16,6 +16,7 @@ describe('analyzeVideoTrack', () => {
         coarseScan: () => Promise.resolve(emptySeries()),
         refineScan: () => Promise.resolve(emptySeries()),
         dispose,
+        usedWebCodecs: false,
       }),
     );
 

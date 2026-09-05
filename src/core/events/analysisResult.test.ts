@@ -90,4 +90,38 @@ describe('buildAnalysisResult', () => {
       buildAnalysisResult({ media, runs: [okRun], rawEvents: [], durationSec: 60 }).warnings,
     ).toEqual([]);
   });
+
+  it('surfaces a failed or skipped run’s note as a warning, so partial results explain why', () => {
+    const result = buildAnalysisResult({
+      media,
+      runs: [
+        okRun,
+        { ...okRun, analyzerId: 'visual-flash', status: 'failed', note: 'scan stalled' },
+      ],
+      rawEvents: [],
+      durationSec: 60,
+    });
+    expect(result.warnings).toContain('scan stalled');
+  });
+
+  it('does not surface a note from a run that succeeded', () => {
+    const result = buildAnalysisResult({
+      media,
+      runs: [{ ...okRun, note: 'not actually a problem' }],
+      rawEvents: [],
+      durationSec: 60,
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('keeps caller-supplied warnings alongside any run notes', () => {
+    const result = buildAnalysisResult({
+      media,
+      runs: [{ ...okRun, status: 'skipped', note: 'stopped early' }],
+      rawEvents: [],
+      durationSec: 60,
+      warnings: ['a window could not be re-scanned'],
+    });
+    expect(result.warnings).toEqual(['a window could not be re-scanned', 'stopped early']);
+  });
 });

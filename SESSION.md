@@ -6,25 +6,29 @@ only tracks session-to-session state.
 
 ---
 
-## 2026-09-04 — main @ 2c6296b, Phase 9 uncommitted in working tree
+## 2026-09-04 — main @ 5e66d69, working tree clean, in sync with origin/main
 
 ### Summary
 
 Went from an empty repo (readme + license only) through a design plan, three validation
-spikes, and **Phases 0–8, all committed and pushed** — the app runs the full experience
-end to end: select → Analyze → progress → results → Assisted Viewing, user-confirmed in
-the browser including two rounds of deepening audio ducking and adding colour
-desaturation. **Phase 9 — hardening (error boundary, playback-failure fallback, a11y
-focus-management fixes) — is complete in the working tree, not committed**, real-browser
-verification pending.
+spikes, and **Phases 0–9, all committed and pushed**, plus a round of post-Phase-9
+polish and two real-file bugfixes (also committed and pushed) — the app runs the full
+experience end to end: select → Analyze → progress → results → Assisted Viewing,
+user-confirmed in the browser at every stage, including a real jump-scare clip that now
+correctly gets flagged and dimmed/ducked on both the visual and audio channels.
 
 - **Phases 0–3:** `669b254` → `3cf45f1 "Testing mp3/mp4 file handling"` (Phases 0–1) →
   `ec247aa "Phase 3 push"` (Phases 2–3).
 - **Phases 4–7 + both bugfixes:** `a629e6e "MP3 and MP4 Audio Analysis"`.
 - **Phase 8 (Assisted Viewing) + the audio-target tuning + colour desaturation:**
   `2c6296b "assisted viewing"`.
-- `main` is in sync with `origin/main`. Working tree = Phase 9, uncommitted. All checks
-  green (216 tests).
+- **Phase 9 (hardening) + post-Phase-9 UI polish** (live timeline/playhead in Assisted
+  Viewing, the visual redesign): `98d7626 "verification tests"`.
+- **Jump-scare detection fixes** (short-video full dense scan, `spikeRiseDb` lowered,
+  the severity-weighting rebalance and its two follow-up corrections): `5e66d69
+"jumpscare detection"`.
+- `main` is in sync with `origin/main`, working tree clean. All checks green
+  (228 tests).
 
 ### Committed
 
@@ -43,6 +47,24 @@ verification pending.
   `DEFAULT_AUDIO_TARGETS` deepened twice, and colour desaturation (`saturation` /
   `DEFAULT_SATURATION_TARGETS`) added to visual mitigation. The section below headed
   "Phase 8" describes what's in `2c6296b`.
+- `98d7626 "verification tests"` — Phase 9 (`ErrorBoundary` / `CrashNotice`, the
+  `MediaPlayer` playback-failure fallback, the large-file advisory surfaced by the
+  Analyze button, focus-management fixes) plus two post-Phase-9 UI requests: a live
+  playhead added to `EventTimeline` and reused inside `AssistedViewing`, and a from-
+  scratch visual redesign of `src/index.css` (design tokens, card layout, unified
+  buttons, filled severity chips). The section below headed "Post-Phase-9 UI polish"
+  describes the timeline/playhead and redesign parts of what's in `98d7626`.
+- `5e66d69 "jumpscare detection"` — three real-file-driven fixes, all found by testing an
+  actual FNAF jump-scare clip end to end: (1) short videos (`fullScanMaxDurationSec`,
+  default 20s) skip the coarse pass and dense-scan the whole file, closing a blind spot
+  where a brief flash could fall entirely between coarse-pass samples; (2)
+  `spikeRiseDb` lowered `10 → 5` so a loud sound following a quieter-but-not-silent
+  moment (not true silence) still registers as a spike; (3) `analyzeLoudness`'s
+  `severityScore` reweighted toward absolute peak loudness rather than how much a sound
+  rose, through two follow-up corrections once real browser-measured numbers (read from
+  the app's own event-details UI) showed the first calibration's margin was too thin.
+  The sections below headed "Bug found + fixed" / "Tuning" / "Then reconsidered..."
+  describe what's in `5e66d69`.
 
 ### Committed detail (3cf45f1)
 
@@ -316,7 +338,7 @@ state.status === 'done'`, renders only `<AssistedViewing>`; otherwise the normal
   desaturation added — is folded into the "Phase 8 design choices" block below since it
   landed in the same commit.)
 
-### Phase 9 — hardening (complete in working tree, NOT committed)
+### Phase 9 — hardening (committed in `98d7626`)
 
 Closes the README checklist items never explicitly targeted: error handling, large-file
 behavior, a final accessibility pass. No new deps, no config changes.
@@ -361,17 +383,14 @@ behavior, a final accessibility pass. No new deps, no config changes.
 
 ### In progress
 
-- Nothing mid-edit. Phase 9 is complete in the working tree (Phases 0–8 committed); all
-  checks pass. **The real-browser pass for Phase 9 is the next step** — dev server is up.
+- Nothing mid-edit. Everything through Phase 9 and the post-Phase-9 jump-scare fixes
+  (see further down this log) is committed, pushed, and real-browser-verified.
 
 ### Planned / not started
 
-- **Real-browser pass for Phase 9 (do this next):** trigger a crash deliberately to
-  confirm the boundary + Back to start actually recovers without a reload, and that
-  `SelectMedia`/preview keep working throughout; confirm focus lands on the results
-  heading after Analyze, the Assisted Viewing heading after Start, and back on the
-  results heading after Exit; confirm a corrupted/renamed file shows the new
-  `MediaPlayer` fallback message.
+- ~~Real-browser pass for Phase 9~~ — done; user confirmed the crash boundary + Back to
+  start, focus management across all four transitions, and the `MediaPlayer` fallback
+  all work, then committed and pushed (`98d7626`).
 - **Standing real-browser gaps (Phases 4–7):** Stop mid-run, and a full pass in
   **Firefox** (audio resample fallback, `frameSampler` seek-loop) — still not exercised.
   Revisit before shipping.
@@ -657,27 +676,6 @@ test in `analyzeLoudness.test.ts` (a loud moment ~6 dB over a non-silent baselin
 (`audioAnalysisPipeline.test.ts`) updated. Verified: **227/227** tests, typecheck/lint/
 format clean, build OK. Not yet re-tested against the real file in the browser.
 
-### Next session should start with
-
-The real-browser pass, covering everything currently uncommitted:
-
-- Phase 9: trigger a crash to confirm the boundary + Back to start recovers cleanly;
-  confirm focus lands correctly across the four review/Assisted-Viewing transitions;
-  confirm a broken file shows the new `MediaPlayer` fallback.
-- The Assisted Viewing timeline/playhead: visually confirm the playhead tracks playback
-  smoothly and markers still seek correctly.
-- The visual redesign: a general look-over (light and dark), user sign-off on "sleek
-  modern, not overdone."
-- **Re-test the real jumpscare clip** (`~/Downloads/FREDDY JUMPSCARE - IULITMx (720p,
-h264).mp4` — not a repo fixture) now that short videos get a full dense scan and
-  `spikeRiseDb` is lower; confirm both the screen dims and the audio ducks around
-  Freddy's scream. Worth also re-running the existing `flash-once-6s.mp4` / beep-mp3
-  fixtures to confirm they still behave now that they take the new short-video code path
-  instead of the old coarse+refine one.
-
-Then review + commit everything, and close the standing Phase 4–7 gaps (Stop mid-run, a
-full Firefox pass) before considering this shippable.
-
 ### Tuning: the scream was detected but barely ducked
 
 The user re-tested after the `spikeRiseDb` fix: detection now fires, but the ducking felt
@@ -700,7 +698,7 @@ stronger), while the intro cue stays solidly `'high'` (≈0.69). New test
 typecheck/lint/format clean, build OK. Not yet re-tested against the real file in the
 browser.
 
-### Git state
+### Tuning: still not quite enough dimming
 
 Still not quite enough dimming per the user's follow-up ("dim it a bit more") — rather
 than push the severity weighting further (which would also touch every other
@@ -758,16 +756,230 @@ of the earlier ffmpeg-estimated ones. Verified: **228/228** tests, typecheck/lin
 clean, build OK. This should be the last round of this particular chase — the fix is
 now grounded in the app's own real decode output, not an offline approximation of it.
 
+The user re-tested in the browser after this last fix, confirmed the ducking and the
+`'high'` classification both look right now, and **committed and pushed everything**.
+
+### Next session should start with
+
+**The real-browser re-test of the stall-guard fix** (see further down this log) — the
+Avengers clip that got stuck at 58% (`~/Downloads/`, not a repo fixture): confirm
+analysis now either finishes or fails cleanly with a clear message, and that Stop
+analysis actually works if clicked mid-run. That also answers whether the original
+"speed up analysis" question is fully explained by this hang or whether the coarse
+pass's ~90s-for-3-minutes cost is still worth addressing on its own (raise
+`coarsePlaybackRate`, or the already-discussed WebCodecs/mp4box.js path — see
+`spikes/README.md`). Then review + commit the stall-guard fix. The standing Phase 4–7
+gaps are still open too: a Stop-mid-run real-browser pass (now more pointed, given this
+bug) and a full pass in Firefox (the `seekLoop`-based coarse fallback in
+`frameSampler.ts`, never yet exercised for real).
+
+### Bug found + fixed: analysis could hang forever, with no way to cancel it
+
+User asked how to speed up analysis (~3 min videos "take a while"). Before tuning
+anything, tried to find out where the time actually goes — explained the two-pass
+architecture's known cost (coarse pass ≈ half the video's own length, ~90s for a 3 min
+file, close to unavoidable at 2× background playback) and asked whether the progress bar
+was crawling in the first ~70% (coarse) or the last ~30% (refine) to tell which half was
+actually the problem.
+
+Instead the user reported something worse on a real file (an Avengers clip,
+`~/Downloads/`, 1080p h264, 199.5 s): **analysis got stuck at 58% and stayed there.**
+
+Root cause, found by reading `frameSampler.ts`: the coarse (`rvfcScan`) and refine
+(`seekLoop`) scan loops only checked `ctx.signal?.aborted` **from inside their own
+callback** (`requestVideoFrameCallback` / a `seeked` event). If the real `<video>`
+element silently stops delivering frames or `seeked` events partway through — a decode
+hiccup, or Chrome's background-tab/hidden-element power throttling of a muted,
+never-appended-to-the-DOM `<video>` (exactly what `analyzeVideoTrack.ts` creates) — that
+callback simply never fires again. Two consequences: the promise never settles (the scan
+hangs forever, with no error), **and Stop analysis doesn't work either**, since the abort
+check that would have caught it never gets a chance to run. 58% overall works out to
+~78% through the coarse pass specifically, consistent with a stall partway through, not
+at a natural end-of-scan boundary.
+
+**Fix:** new `src/adapters/video/scanGuard.ts` — `withStallGuard(run, { signal,
+stallTimeoutMs })`, generic and DOM-free (only `setTimeout`/`AbortSignal`), so it's
+unit-tested directly even though the rest of `frameSampler.ts` isn't (browser-only,
+verified in the real-browser pass per its own docstring). It listens for `abort`
+independently of whatever `run` is doing (fixes Stop not working under a stall) and
+rejects with a new `MediaStallError` if `run`'s `bump()` callback goes unchronologically
+quiet for `stallTimeoutMs` (default 10 s — reset on every real frame/seek, so a
+genuinely slow-but-progressing multi-minute coarse scan never trips it). Both `rvfcScan`
+and `seekLoop` now report progress through `bump`, dropped their old inline
+`signal.aborted` checks (redundant now), and take a `stallTimeoutMs` from a new
+`VideoTrackOptions.stallTimeoutMs`, threaded into `AnalyzerRun.params` like the other
+scan tunables. A `MediaStallError` isn't an `AbortError`, so it correctly falls through
+existing paths as a real failure (`coarseScanFailureAnalysis`, or the refine-window
+catch-and-warn-with-partial-results path) rather than being reported as user-cancelled —
+no pipeline changes needed, both graceful-degradation paths already existed.
+
+7 new tests in `scanGuard.test.ts` (resolves normally; propagates a non-stall rejection;
+rejects immediately if already aborted; rejects on a mid-run abort even if `run` never
+settles again; rejects on a stall; a periodic `bump` avoids a stall past the original
+window; no stray rejection fires after an early resolve — via fake timers). Verified:
+**235/235** tests, typecheck/lint/format clean, build OK. Not yet re-tested against the
+real file — that's the natural next step (does it now either finish or fail cleanly
+within ~10s of a stall, and does Stop actually work if clicked during one), and also
+tells us whether the original "3 minutes takes a while" question was ever anything more
+than the coarse pass's expected, mostly-unavoidable cost — worth reopening the
+faster-coarse-pass options (raise `coarsePlaybackRate`, or the already-discussed
+WebCodecs/mp4box.js path) only once we know it isn't just this hang.
+
+The user re-tested on the real Avengers clip: the stall guard worked exactly as
+designed — no more infinite hang, and the results panel correctly showed "Some analysis
+did not finish" (partial). Audio still detected the loud moment correctly.
+
+That surfaced a separate, smaller gap: the partial-status banner had **no specific
+reason** attached — `AnalyzerRun.note` (e.g. "SoftView could not scan the video in this
+file.") was set on a failed/skipped run but never made it into `result.warnings`, so
+`LimitationsNotice` had nothing to show beyond the generic banner + the four
+always-present base limitations. **Fix:** `buildAnalysisResult`
+(`src/core/events/analysisResult.ts`) now folds any non-`ok` run's `note` into
+`warnings` automatically, alongside whatever the caller passed directly — the interface
+already documented `warnings` as "Run-specific notices (e.g. a scan that did not
+finish)," this just makes it actually happen. 3 new tests in `analysisResult.test.ts`.
+
+**Then, still not knowing exactly why the coarse scan stalls on this file**, added one
+more resilience measure: `rvfcScan` now listens for the video's own `waiting`/`stalled`
+events and nudges it with `.play()` again — a blob URL has no network to stall on, but
+decode itself can still hiccup (a rough GOP, or Chrome's background-video power-saving
+throttling of a muted, never-appended-to-the-DOM `<video>` — exactly what
+`analyzeVideoTrack.ts` creates, and a real suspect given the stall only shows up on a
+long real file, never the short test clips). This is a low-risk, generically-useful
+recovery attempt, not a confirmed fix for the specific root cause — `withStallGuard`'s
+10 s timeout stays as the backstop either way. Not yet confirmed whether this alone
+resolves it, and the DOM-attachment theory is still just a theory — worth asking the
+user whether the tab stayed focused/visible for the whole ~3 minute wait, which would
+narrow it down further.
+
+Verified: **238/238** tests, typecheck/lint/format clean, build OK.
+
+**The user confirmed they had switched to something else while the 3-minute file
+analyzed** — the background-tab-throttling theory is now the confirmed cause, not just
+a guess. Two more changes on the back of that:
+
+- **`keepAliveWhileHidden` in `frameSampler.ts`** — while `document.hidden`, both
+  `rvfcScan` and `seekLoop` now `bump()` the stall guard every 2s via `setInterval`,
+  independent of whatever the throttled video/rVFC pipeline is actually doing. A
+  backgrounded tab is expected browser behaviour (battery-saving), not a genuine stall
+  — this stops it from being misreported as a scan failure; analysis just quietly takes
+  longer while the tab is hidden, and picks back up at full speed once it's visible
+  again. `scanGuard.ts` itself stayed untouched (still DOM-free/pure) — the
+  visibility-awareness lives entirely in the browser-only caller, per the existing
+  architecture boundary.
+- **A proactive note in `AnalyzeControls`**, shown for video (not audio) both before and
+  during analysis: "Keep this tab open and visible for it to finish quickest." The
+  keep-alive fix above stops a false failure, but backgrounding still genuinely slows
+  video analysis down — worth setting that expectation up front rather than only
+  explaining it after the fact. New `kind?: MediaKind` prop, threaded from `App.tsx`
+  (`descriptor.kind`). 3 new tests in `AnalyzeControls.test.tsx`.
+
+Verified: **240/240** tests, typecheck/lint/format clean, build OK. Not yet re-tested
+against the real file — this should be the actual fix (not just a graceful failure) for
+the specific scenario reported, assuming the video-decode side of Chrome's throttling
+responds to the periodic `bump()`-driven wall-clock extension the way the JS-timer side
+clearly does. If the coarse pass still fails/hangs specifically while backgrounded even
+with this in place, that would mean the browser is throttling video decode/rVFC so hard
+that no amount of stall-guard patience helps, and the real fix would have to prevent the
+throttling itself (e.g. attaching the analysis `<video>` to the page, hidden via CSS
+rather than fully detached) rather than tolerate it — untried, since the current fix
+might already be enough.
+
+### Phase 10 — WebCodecs-accelerated video scanning
+
+The user asked directly for the real speed fix, not just resilience around the slowness
+(and separately confirmed a YouTube-link idea was a non-starter — breaks the
+local-only-analysis premise, and wouldn't be faster anyway since the analysis cost is
+the same regardless of how the file arrived; and that trimming a clip first / bumping
+`coarsePlaybackRate` were understood as the cheap partial options, but they're "gearing
+towards bigger investment"). Planned with the user (`EnterPlanMode` → approved) and
+built as **Phase 10** — the WebCodecs/mp4box.js path `spikes/README.md` (R3) had
+already named as "the scaling path... adopt only if coarse-pass duration becomes a real
+problem." That problem is now on record from this session's own Avengers-clip
+investigation.
+
+**Key finding the plan turned up:** `videoAnalysisPipeline.ts` only depends on the
+`FrameSampler` interface (`coarseScan`/`refineScan` → `TimeSeries`) — nothing in
+`src/core` needed to change. And since WebCodecs decodes as fast as the hardware
+allows (no realtime ceiling), the whole coarse/refine split becomes unnecessary: once
+dense whole-file decoding is fast, there's nothing left to "refine." This reuses the
+"skip the split, one dense scan" pattern already built for short videos
+(`fullScanMaxDurationSec`) — for a WebCodecs-sampled file, that threshold is overridden
+to `Infinity` regardless of actual length.
+
+**New dependency: `mp4box`** (bundle grew 225.83 kB → **414.19 kB** JS, gzip 71.99 →
+**119.04 kB** — mp4box's smaller `/simple` export was checked and rejected: it doesn't
+register the `avcC`/`hvcC` box parsers this needs, so the full build is the real cost
+of this feature, not an oversight).
+
+**New file: `src/adapters/video/webCodecsFrameSampler.ts`** — a `FrameSampler`
+implementation:
+
+- `probeWebCodecs(blob)` — demuxes just the video track's codec config (codec string +
+  the `avcC`/`hvcC` box, serialized via `mp4box`'s `MultiBufferStream` minus its 8-byte
+  header — the payload `VideoDecoderConfig.description` expects), then
+  `VideoDecoder.isConfigSupported(...)`. Never throws — a `false` means "fall back,"
+  covering both "no WebCodecs" and "WebCodecs exists but not for this codec/profile."
+  Also returns the file's duration (from mp4box's `Movie.duration`/`timescale`) so the
+  caller doesn't need a second demux, or a `<video>` element at all, just to find out
+  how long the file is.
+- `createWebCodecsFrameSampler` — feeds every demuxed sample into `VideoDecoder` in
+  decode order, downscales each output `VideoFrame` through the **same**
+  `makeCapture`/`meanLuminance` used by the `<video>`-based path (now exported from
+  `frameSampler.ts`, broadened to accept any `CanvasImageSource` — behavior unchanged
+  for its existing caller), closes each frame immediately (they leak otherwise), and
+  resolves once `decoder.flush()` confirms every submitted chunk has actually been
+  decoded and emitted — the spec-correct way to know decoding is done, no manual frame
+  counting needed. `coarseScan`/`refineScan` both draw from one cached decode;
+  `refineScan` slices it (`sliceByTime`, already existed). Reuses `withStallGuard` for
+  the same cancellation semantics as the `<video>` path, though a genuine stall is far
+  less likely here — no `<video>` playback/rendering pipeline is involved at all, so
+  the background-tab throttling class of bug this session just fixed shouldn't apply to
+  this path in the first place.
+- `sortedTimeSeries` — the one piece of plain logic (frames sorted into a valid
+  `TimeSeries`; presentation order should already match decode-output order per the
+  WebCodecs spec, but sorted defensively rather than assumed) — pulled out and
+  unit-tested directly (4 tests), same reasoning as `scanGuard.ts`. The
+  demux/decode/canvas glue around it stays real-browser-only, like the rest of
+  `frameSampler.ts`.
+
+**Call site — `analyzeVideoTrack.ts`:** `defaultBuildSampler` now tries
+`probeWebCodecs(blob)` first; on `supported`, builds the WebCodecs sampler (and
+overrides `fullScanMaxDurationSec` to `Infinity`); otherwise falls back to the existing
+`createFrameSampler` unchanged — mirrors the existing `HAS_RVFC` Chrome/Firefox
+fallback pattern, one level higher (whole sampler instead of one method).
+`AnalyzeVideoTrackDeps['buildSampler']` now takes the original `Blob` (not just the
+derived blob: URL) so the WebCodecs path can read raw bytes directly.
+
+**Audit trail:** new `usedWebCodecs` field on `VideoTrackOptions`, threaded into
+`AnalyzerRun.params` (`videoAnalysisPipeline.ts`) — visible after the fact which path
+actually ran, useful for exactly the kind of debugging this session just did.
+
+**Deliberately deferred (per the plan):** moving this into a Worker (like
+`audioAnalysis.worker.ts`) for UI responsiveness on a long decode — landing the
+main-thread version first and confirming it's correct/faster in the real browser
+before adding that. Also: no backpressure-aware chunk feeding (`decoder.decode()` is
+called for a whole batch without checking `decodeQueueSize`) — a simplification worth
+revisiting if a very long/high-bitrate file shows high memory use in practice.
+
+Verified: **244/244** tests, typecheck/lint/format clean, build OK. Not yet tested in a
+real browser at all — this is the biggest, least-verified single change of the
+session, and needs the real-browser pass against the same three files used throughout
+(the two 6s fixtures, the FNAF clip, and — the actual point — the 3-minute Avengers
+clip: confirm it's now meaningfully faster, still correct, and still fine if the user
+switches tabs mid-scan).
+
 ### Git state
 
-`main` @ `2c6296b`, in sync with `origin/main`. Phases 0–8 (all bugfixes and tuning
-rounds included) committed and pushed. Working tree = Phase 9 + five post-Phase-9
-follow-ups (Assisted Viewing timeline/playhead, a visual redesign, the short-video
-full-scan fix, the `spikeRiseDb` lowering, and the severity-weighting rebalance —
-`envelope.ts`'s `DEFAULT_AUDIO_TARGETS` ended up back at its committed values after the
-detour through `moderate`): `src/ui/components/{ErrorBoundary,CrashNotice}.tsx` + tests,
-plus edits to `MediaPlayer.tsx`, `AnalyzeControls.tsx`, `ResultsPanel.tsx`,
-`EventList.tsx`, `EventTimeline.tsx`, `AssistedViewing.tsx`, `useAssistedPlayback.ts`,
-`App.tsx`, `src/index.css`, `src/adapters/video/{types,videoAnalysisPipeline}.ts`,
-`src/core/audio/analyzeLoudness.ts`, `SESSION.md`, all with matching test updates),
-awaiting the user's review and commit; nothing branched or stashed.
+`main` @ `5e66d69`, in sync with `origin/main`. `98d7626` (Phase 9 + the
+timeline/playhead + visual redesign) and `5e66d69` (jump-scare detection fixes) are
+committed and pushed. Working tree = everything from this session since then, not yet
+committed: the stall-guard fix, the warnings-surfacing fix, the waiting/stalled
+recovery nudge, the background-tab keep-alive, the tab-visibility UI hint, and Phase 10
+(WebCodecs-accelerated video scanning) — `src/adapters/video/{scanGuard,
+webCodecsFrameSampler}.ts` + tests (new), edits to `frameSampler.ts`, `types.ts`,
+`videoAnalysisPipeline.ts`, `analyzeVideoTrack.ts` + test,
+`src/core/events/analysisResult.ts` + test, `src/ui/components/AnalyzeControls.tsx` +
+test, `src/App.tsx`, `package.json`/`package-lock.json` (new dependency: `mp4box`),
+`SESSION.md`. Awaiting the user's review, the real-browser pass, and commit; nothing
+branched or stashed.

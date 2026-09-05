@@ -114,6 +114,7 @@ export function App() {
                     : 'SoftView needs the media duration before it can analyze — try re-selecting the file.'
                 }
                 advisory={advisory}
+                kind={descriptor.kind}
               />
             )}
 
