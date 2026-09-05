@@ -971,15 +971,41 @@ switches tabs mid-scan).
 
 ### Git state
 
+### Tuning: dim all audio severity tiers a bit more
+
+Not tied to any specific event this time — a general "dim it all a bit more" across the
+board. Lowered all three of `DEFAULT_AUDIO_TARGETS` proportionally: `low` 0.3 → 0.2,
+`moderate` 0.15 → 0.1, `high` 0.05 → 0.03. Same as every prior round of this tuning, no
+test hardcodes the numeric values. Verified: **244/244** tests, typecheck/lint/format
+clean, build OK.
+
+### Tuning: more lead-in/lead-out around the mute
+
+Follow-up: "give a 1 second more leeway on the start and end of the mute" —
+`DEFAULT_FADE_SEC` in `envelope.ts` (the linear ramp either side of an event's span,
+shared by audio ducking and visual dim/desaturate) raised `0.5s → 1.5s`. Applies
+symmetrically: ducking now starts ramping 1.5s before an event's `startTime` (was 0.5s)
+and takes 1.5s to fully restore after `endTime`. Three tests in `envelope.test.ts`
+asserted specific currentTime values keyed to the old 0.5s default (`9.75`/`12.25`/
+`4.75`, each a fade-window midpoint) — updated to the new midpoints (`9.25`/`12.75`/
+`4.25`) with comments kept in sync; the assertions themselves (severity-target ramp
+math) were unaffected, only which instant is "halfway through the fade." Verified:
+**244/244** tests, typecheck/lint/format
+clean, build OK.
+
+### Git state
+
 `main` @ `5e66d69`, in sync with `origin/main`. `98d7626` (Phase 9 + the
 timeline/playhead + visual redesign) and `5e66d69` (jump-scare detection fixes) are
 committed and pushed. Working tree = everything from this session since then, not yet
 committed: the stall-guard fix, the warnings-surfacing fix, the waiting/stalled
-recovery nudge, the background-tab keep-alive, the tab-visibility UI hint, and Phase 10
-(WebCodecs-accelerated video scanning) — `src/adapters/video/{scanGuard,
-webCodecsFrameSampler}.ts` + tests (new), edits to `frameSampler.ts`, `types.ts`,
-`videoAnalysisPipeline.ts`, `analyzeVideoTrack.ts` + test,
-`src/core/events/analysisResult.ts` + test, `src/ui/components/AnalyzeControls.tsx` +
-test, `src/App.tsx`, `package.json`/`package-lock.json` (new dependency: `mp4box`),
-`SESSION.md`. Awaiting the user's review, the real-browser pass, and commit; nothing
-branched or stashed.
+recovery nudge, the background-tab keep-alive, the tab-visibility UI hint, Phase 10
+(WebCodecs-accelerated video scanning), and the latest audio-target dimming —
+`src/adapters/video/{scanGuard, webCodecsFrameSampler}.ts` + tests (new), edits to
+`frameSampler.ts`, `types.ts`, `videoAnalysisPipeline.ts`, `analyzeVideoTrack.ts` +
+test, `src/core/events/analysisResult.ts` + test,
+`src/ui/components/AnalyzeControls.tsx` + test, `src/core/assistedViewing/envelope.ts`,
+`src/App.tsx`, `package.json`/`package-lock.json` (new dependency: `mp4box`),
+`SESSION.md`. Awaiting the user's review, the real-browser pass (Phase 10 in
+particular, still untested in an actual browser), and commit; nothing branched or
+stashed.

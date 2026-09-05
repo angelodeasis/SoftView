@@ -13,7 +13,7 @@
 import type { SensoryEvent, Severity } from '../events/model';
 
 export interface MitigationOptions {
-  /** Linear ramp in/out around each event's span. Default `0.5` s. */
+  /** Linear ramp in/out around each event's span. Default `1.5` s. */
   readonly fadeSec?: number;
   /** Volume multiplier per severity bucket during an audio event's hold region. */
   readonly audioTargets?: Readonly<Record<Severity, number>>;
@@ -41,12 +41,12 @@ export interface MitigationLevel {
   readonly activeVisualEvent?: SensoryEvent;
 }
 
-const DEFAULT_FADE_SEC = 0.5;
+const DEFAULT_FADE_SEC = 1.5;
 
 export const DEFAULT_AUDIO_TARGETS: Readonly<Record<Severity, number>> = {
-  low: 0.3,
-  moderate: 0.15,
-  high: 0.05,
+  low: 0.2,
+  moderate: 0.1,
+  high: 0.03,
 };
 
 export const DEFAULT_VISUAL_TARGETS: Readonly<Record<Severity, number>> = {

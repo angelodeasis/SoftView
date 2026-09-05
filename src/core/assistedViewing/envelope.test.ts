@@ -39,14 +39,14 @@ describe('mitigationAt', () => {
     const target = DEFAULT_AUDIO_TARGETS.moderate;
     const level = mitigationAt(
       [event({ startTime: 10, endTime: 12 })],
-      9.75, // halfway through the default 0.5s fade before startTime
+      9.25, // halfway through the default 1.5s fade before startTime
     );
     expect(level.volume).toBeCloseTo(1 - 0.5 * (1 - target), 5);
   });
 
   it('ramps back up symmetrically through the lead-out fade', () => {
     const target = DEFAULT_AUDIO_TARGETS.moderate;
-    const level = mitigationAt([event({ startTime: 10, endTime: 12 })], 12.25);
+    const level = mitigationAt([event({ startTime: 10, endTime: 12 })], 12.75);
     expect(level.volume).toBeCloseTo(1 - 0.5 * (1 - target), 5);
   });
 
@@ -106,7 +106,7 @@ describe('mitigationAt', () => {
     const held = mitigationAt([flash], 5.5);
     expect(held.saturation).toBeCloseTo(0, 5);
 
-    const fadingIn = mitigationAt([flash], 4.75); // halfway through the lead-in fade
+    const fadingIn = mitigationAt([flash], 4.25); // halfway through the lead-in fade
     expect(fadingIn.saturation).toBeCloseTo(1 - 0.5 * (1 - DEFAULT_SATURATION_TARGETS.high), 5);
     expect(fadingIn.brightness).toBeCloseTo(1 - 0.5 * (1 - DEFAULT_VISUAL_TARGETS.high), 5);
   });
